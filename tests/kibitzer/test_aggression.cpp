@@ -76,7 +76,7 @@ int main() {
     }
     {
         Input in = make();
-        in.hero[0] = code(14,0); in.hero[1] = code(13,0);
+        in.hero[0] = code(14,0); in.hero[1] = code(13,1);
         in.boardSize = 0; in.equity = 0.61;
         assert(!premiumPreflop(in.hero)); // offsuit AK is not our narrow premium flag
         assert(assess(in).signal == Signal::None);
