@@ -517,6 +517,19 @@ Rectangle {
                                         + "% of all 1,326 starting combinations (before blockers)"
                                       : "Selected: any two cards (100%)"
                                 wrapMode: Text.WordWrap
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        var combos = Math.round(1326 * opponentRow.modelData.coverage)
+                                        kb.rangeFeedback = "Coverage for " + opponentRow.modelData.name
+                                             + ": " + combos + " distinct hole-card combinations / "
+                                             + "C(52,2) = 1,326 = "
+                                             + (100 * opponentRow.modelData.coverage).toFixed(1)
+                                             + "%. A pocket pair has 6 combinations, a suited "
+                                             + "unpaired hand 4, and an offsuit hand 12. "
+                                             + "Actual known cards (blockers) can reduce the usable combinations."
+                                    }
+                                }
                             }
                             Row {
                                 width: parent.width; spacing: 4
