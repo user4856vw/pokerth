@@ -672,6 +672,7 @@ private:
 	QVariantMap m_kibitzerHandSettlement;
 	bool m_kibitzerTournamentActive = false;
 	int m_kibitzerTournamentEntrants = 0;
+	int m_kibitzerTournamentPreviousLiving = 0;
 	int m_kibitzerTournamentLastCash = 0;
 	int m_kibitzerTournamentLastSettledHand = -1;
 	int m_kibitzerTournamentHandCount = 0;
