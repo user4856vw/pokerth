@@ -16,6 +16,7 @@
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
 #include <equitycalculator.h>
+#include <holecardsrange.h>
 #include <playerdata.h>
 #include <game_defs.h>
 #include <gamedata.h>
@@ -293,6 +294,8 @@ void GameHandler::setGame(boost::shared_ptr<Game> game)
 	m_kibitzerLastReview.clear();
 	m_kibitzerEvents.clear();
 	m_kibitzerHandId = -1;
+	m_kibitzerManualRanges.clear(); // seat numbers are specific to this game
+	emit kibitzerRangesChanged();
 	emit kibitzerReviewChanged();
 	m_leftPlayers.clear();
 	// Discard pending busted player timers from the previous game.
@@ -801,6 +804,76 @@ void GameHandler::refreshPlayerData()
 }
 
 
+// A local player's subjective ranges are keyed by their visible seat.
+// A range is an assumption, never an inspection of hidden bot cards.
+QVariantList GameHandler::kibitzerOpponentRanges() const
+{
+    QVariantList out;
+    if (!isLocalGameRunning() || m_spectating) return out;
+    for (const QVariant &value : m_players) {
+        const QVariantMap p = value.toMap();
+        const int seat = p.value("seatId", -1).toInt();
+        if (seat <= 0 || seat > 9 || p.value("name").toString().isEmpty())
+            continue;
+        const QString notation = m_kibitzerManualRanges.value(seat);
+        QVariantMap item;
+        item["seatId"] = seat;
+        item["name"] = p.value("name").toString();
+        item["notation"] = notation;
+        item["folded"] = p.value("folded").toBool();
+        item["active"] = p.value("active").toBool();
+        item["custom"] = !notation.isEmpty();
+        HoleCardsRange range;
+        if (!notation.isEmpty() && range.add(notation.toStdString()))
+            item["coverage"] = range.combinationShare();
+        else
+            item["coverage"] = 1.0;
+        out.append(item);
+    }
+    return out;
+}
+
+QVariantMap GameHandler::kibitzerSetOpponentRange(int seatId, const QString &notation)
+{
+    QVariantMap out;
+    out["ok"] = false;
+    if (!isLocalGameRunning() || m_spectating || seatId <= 0 || seatId > 9
+        || seatId >= m_players.size()
+        || m_players.at(seatId).toMap().value("name").toString().isEmpty()) {
+        out["message"] = QStringLiteral("This is not a seated local-game opponent.");
+        return out;
+    }
+    QString raw = notation.trimmed();
+    if (raw.compare(QLatin1String("random"), Qt::CaseInsensitive) == 0
+        || raw.compare(QLatin1String("any"), Qt::CaseInsensitive) == 0
+        || raw == QLatin1String("*")) raw.clear();
+    if (raw.size() > 384) {
+        out["message"] = QStringLiteral("Range notation is too long.");
+        return out;
+    }
+    if (!raw.isEmpty()) {
+        HoleCardsRange range;
+        if (!range.add(raw.toStdString()) || range.empty()) {
+            out["message"] = QStringLiteral(
+                "Invalid range. Examples: QQ+, AKs, AJo+, 77-TT. "
+                "Use commas between terms; empty means any hand.");
+            return out;
+        }
+        out["coverage"] = range.combinationShare();
+        m_kibitzerManualRanges.insert(seatId, raw);
+    } else {
+        m_kibitzerManualRanges.remove(seatId);
+        out["coverage"] = 1.0;
+    }
+    out["ok"] = true;
+    out["notation"] = raw;
+    out["message"] = raw.isEmpty() ? QStringLiteral("Any two cards (random baseline)")
+                                   : QStringLiteral("Your range hypothesis saved");
+    emit kibitzerRangesChanged();
+    return out;
+}
+
+
 // A small, deliberately read-only teaching aid. Only public cards and the
 // human player's cards are used. Not available in online games.
 QVariantMap GameHandler::kibitzerAdvice() const
@@ -842,10 +915,39 @@ QVariantMap GameHandler::kibitzerAdvice() const
     }
     if (opponents <= 0) return out;
 
-    // Nullptr ranges mean uniformly random unseen opponent hole cards.
-    // With identical uniform ranges, the existing equity calculator's
-    // sequential rejection sampler gives unbiased joint card deals.
-    // Its range-conditioned multi-opponent mode is NOT used here.
+    // Build both the fully random baseline and the manually conditioned
+    // scenario from visible seat IDs. The list order matches active players.
+    // No calls to getMyCards() for opponents, even in a local game.
+    std::vector<HoleCardsRange> ownedRanges;
+    std::vector<const HoleCardsRange*> chosenRanges;
+    QVariantList rangeRows;
+    ownedRanges.reserve(static_cast<std::size_t>(opponents));
+    chosenRanges.reserve(static_cast<std::size_t>(opponents));
+    bool anyCustom = false;
+    for (const auto &player : *activePlayers) {
+        const int id = player->getMyID();
+        if (id == 0 || player->getMyAction() == PLAYER_ACTION_FOLD)
+            continue;
+        const QString notation = m_kibitzerManualRanges.value(id);
+        QVariantMap row;
+        row["seatId"] = id;
+        row["name"] = (id >= 0 && id < m_players.size())
+            ? m_players.at(id).toMap().value("name").toString()
+            : QStringLiteral("Seat %1").arg(id);
+        row["notation"] = notation;
+        if (notation.isEmpty()) {
+            chosenRanges.push_back(nullptr);
+        } else {
+            ownedRanges.emplace_back();
+            if (!ownedRanges.back().add(notation.toStdString())
+                || ownedRanges.back().empty()) {
+                return out; // should be impossible: validated at edit time
+            }
+            chosenRanges.push_back(&ownedRanges.back());
+            anyCustom = true;
+        }
+        rangeRows.append(row);
+    }
     // Nonzero seed makes this particular estimate exactly replayable later.
     // The seed is independent of the game engine and never reveals bot cards.
     constexpr int kSamples = 2500;
@@ -879,26 +981,77 @@ QVariantMap GameHandler::kibitzerAdvice() const
     out["hero"] = logCard(hole[0]) + QStringLiteral(" ") + logCard(hole[1]);
     out["phase"] = m_phaseText;
     out["canRaise"] = m_maxRaiseAmount > 0;
+    out["activeRanges"] = rangeRows;
+    out["rangeStatus"] = anyCustom ? QStringLiteral("pending") : QStringLiteral("baseline");
+    out["effectiveEquity"] = equity;
+    out["effectiveSamples"] = estimate.samples;
+    if (anyCustom) {
+        // The custom-range scenario uses independent hand draws per player
+        // with WHOLE-DEAL collision rejection. No silently randomized fallback
+        // if the player's assumptions have too few compatible deals.
+        const std::uint32_t rangeSeed = QRandomGenerator::global()->generate() | 1U;
+        const auto conditioned = EquityCalculator::equity(
+            hole, board, boardSize, chosenRanges, kSamples, rangeSeed, true);
+        QVariantMap scenario;
+        scenario["modelVersion"] = QStringLiteral("manual-ranges-joint-rejection-v1");
+        scenario["seed"] = static_cast<quint64>(rangeSeed);
+        scenario["samplesRequested"] = kSamples;
+        scenario["samples"] = conditioned.samples;
+        scenario["equity"] = conditioned.equity;
+        scenario["equityStdError"] = conditioned.standardError;
+        scenario["win"] = conditioned.win;
+        scenario["tie"] = conditioned.tie;
+        scenario["ranges"] = rangeRows;
+        out["rangeScenario"] = scenario;
+        out["rangeSamples"] = conditioned.samples;
+        if (conditioned.samples >= 1000) {
+            out["rangeStatus"] = QStringLiteral("ready");
+            out["rangeEquity"] = conditioned.equity;
+            out["rangeStdError"] = conditioned.standardError;
+            out["rangeDelta"] = conditioned.equity - equity;
+            out["effectiveEquity"] = conditioned.equity;
+            out["effectiveSamples"] = conditioned.samples;
+        } else {
+            out["rangeStatus"] = QStringLiteral("insufficient");
+            out["rangeMessage"] = QStringLiteral(
+                "Range combination yielded only %1 compatible samples. "
+                "Broaden ranges or remove conflicting assumptions; "
+                "do not use the random baseline as a replacement.")
+                .arg(conditioned.samples);
+        }
+    }
 
     // This is explicitly NOT a full EV-maximizing poker strategy.
-    // Against an actual bet, the caller's range is NOT random. The 0.12 gap
-    // is a caution buffer, not a statistically derived confidence interval.
+    // The 0.12 gap is a conservative heuristic, not a confidence interval.
+    // If manual assumptions cannot be simulated, give NO recommendation.
+    if (anyCustom && out.value("rangeStatus").toString() != QLatin1String("ready")) {
+        out["headline"] = QStringLiteral("NO ADVICE — incompatible ranges");
+        out["explanation"] = out.value("rangeMessage").toString();
+        return out;
+    }
+    const double judged = out.value("effectiveEquity").toDouble();
+    const QString scope = anyCustom
+        ? QStringLiteral("your specified opponent ranges")
+        : QStringLiteral("uniformly random opponents");
     if (price == 0) {
         out["headline"] = QStringLiteral("CHECK is free");
         out["explanation"] = QStringLiteral(
             "A bet might be stronger; fold equity is not modeled.");
-    } else if (equity > required + 0.12) {
+    } else if (judged > required + 0.12) {
         out["headline"] = QStringLiteral("CALL passes basic equity check");
         out["explanation"] = QStringLiteral(
-            "But a bet or raise changes the opponent's likely range.");
-    } else if (equity < required - 0.12) {
+            "Equity exceeds immediate pot odds under %1. "
+            "Opponent responses and future betting are not modeled.").arg(scope);
+    } else if (judged < required - 0.12) {
         out["headline"] = QStringLiteral("FOLD merits consideration");
         out["explanation"] = QStringLiteral(
-            "Estimated equity is below pot odds against random hands.");
+            "Equity is below pot odds under %1. "
+            "A different range assumption could reverse this.").arg(scope);
     } else {
         out["headline"] = QStringLiteral("CLOSE decision");
         out["explanation"] = QStringLiteral(
-            "Opponent ranges and future betting could change the answer.");
+            "Equity is close to immediate pot odds under %1. "
+            "This is not a solver-grade verdict.").arg(scope);
     }
     return out;
 }
@@ -1041,11 +1194,12 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     in.action = choice;
     in.price = price;
     in.equityAvailable = estimate.value("status").toString() == QLatin1String("ready")
+                         && estimate.value("rangeStatus").toString() != QLatin1String("insufficient")
                          && estimate.value("price").toInt() == price
                          && estimate.value("pot").toInt() == pot;
-    in.equity = estimate.value("equity").toDouble();
+    in.equity = estimate.value("effectiveEquity").toDouble();
     in.required = estimate.value("required").toDouble();
-    in.samples = estimate.value("samples").toInt();
+    in.samples = estimate.value("effectiveSamples").toInt();
     in.allInOrSidePot = hasAllIn;
     const auto assessment = KibitzerReviewLogic::assess(in);
     QString rating;
