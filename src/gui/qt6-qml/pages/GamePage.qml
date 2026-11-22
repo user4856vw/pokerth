@@ -1583,6 +1583,17 @@ Rectangle {
                 }
             }
 
+            // A teaching adviser for local play against computer opponents.
+            // It never sees hidden opponent cards and never sends game actions.
+            KibitzerPanel {
+                id: kibitzerPanel
+                z: 220
+                width: Math.min(parent.width - 16, 520)
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 8
+            }
+
             // ── The info panel overlay (history/odds/hand) ────────────────────
             // Only in the NOT docked mode (portrait/mobile). In desktop
             // landscape the panel lies docked permanently on the right (infoDock,

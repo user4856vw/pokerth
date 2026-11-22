@@ -124,6 +124,8 @@ class GameHandler : public QObject
 {
 	Q_OBJECT
 
+	Q_PROPERTY(QVariantMap kibitzerReview READ kibitzerReview NOTIFY kibitzerReviewChanged)
+	Q_PROPERTY(QVariantMap kibitzerProgress READ kibitzerProgress NOTIFY kibitzerProgressChanged)
 	Q_PROPERTY(QVariantList players READ players NOTIFY playersChanged)
 	Q_PROPERTY(int pot READ pot NOTIFY potChanged)
 	Q_PROPERTY(int gameId READ gameId NOTIFY gameIdChanged)
@@ -227,8 +229,13 @@ public:
 
 	// Called from QML to start a local game
 	Q_INVOKABLE void startLocalGame();
+	Q_INVOKABLE QVariantMap kibitzerReview() const;
+	Q_INVOKABLE QVariantMap kibitzerProgress() const;
+	Q_INVOKABLE bool kibitzerCopyBackup() const;
+	Q_INVOKABLE bool kibitzerImportBackup(const QString &json);
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
+	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
 	// Changes whenever a local game is started or left. The delayed
 	// local game steps (QmlGuiInterface timers) remember it when scheduled and
 	// skip themselves if it changed meanwhile - otherwise a step of the old
@@ -492,6 +499,8 @@ public:
 	Q_INVOKABLE void continueToNextHand();
 
 signals:
+	void kibitzerProgressChanged();
+	void kibitzerReviewChanged();
 	void playersChanged();
 	void potChanged();
 	void gameIdChanged();
@@ -570,6 +579,12 @@ private:
 	// Adopt the colours from the table theme into m_tableChatPalette and report the chat
 	// as well as the history as changed.
 	void refreshTableChatPalette();
+	void loadKibitzerProgress();
+	void saveKibitzerProgress();
+	void rebuildKibitzerProgress();
+	void persistKibitzerHand();
+	void recordKibitzerAction(const QString &action, int amount);
+	void finishKibitzerHand();
 	void refreshPlayerData();
 	void refreshBoardCards();
 	// Recompute the odds (CardsValue::calcCardsChance) + the currently best hand of your own
@@ -639,6 +654,14 @@ private:
 	QElapsedTimer m_afkResetTimer;
 	static constexpr qint64 kAfkResetIntervalMs = 3 * 60 * 1000; // 3 min
 
+	QVariantMap m_kibitzerProgress;
+	QVariantList m_kibitzerHistory;
+	int m_kibitzerSessionId = 1;
+	bool m_kibitzerHistoryWritable = true;
+	QString m_kibitzerStorageError;
+	QVariantMap m_kibitzerLastReview;
+	QVariantList m_kibitzerEvents;
+	int m_kibitzerHandId = -1;
 	QVariantList m_players;
 	int m_pot = 0;
 	int m_gameId = 0;

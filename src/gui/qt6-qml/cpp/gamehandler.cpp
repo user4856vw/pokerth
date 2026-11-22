@@ -14,6 +14,8 @@
 #include <boardinterface.h>
 #include <berointerface.h>
 #include <cardsvalue.h>
+#include "kibitzer_review_logic.h"
+#include <equitycalculator.h>
 #include <playerdata.h>
 #include <game_defs.h>
 #include <gamedata.h>
@@ -163,6 +165,7 @@ GameHandler::GameHandler(QObject *parent)
 	m_afkResetTimer.start();
 	if (qApp)
 		qApp->installEventFilter(this);
+	loadKibitzerProgress();
 }
 
 // Does an event count as real user activity (→ reset the AFK timer of the
@@ -284,6 +287,10 @@ void GameHandler::setGame(boost::shared_ptr<Game> game)
 		m_spectating = spectating;
 		emit spectatingChanged();
 	}
+	m_kibitzerLastReview.clear();
+	m_kibitzerEvents.clear();
+	m_kibitzerHandId = -1;
+	emit kibitzerReviewChanged();
 	m_leftPlayers.clear();
 	// Discard pending busted player timers from the previous game.
 	qDeleteAll(m_bustedLocalTimers);
@@ -788,6 +795,217 @@ void GameHandler::refreshPlayerData()
 
 	// A local game: hide players with 0 coins after 10 seconds.
 	checkBustedLocalPlayers();
+}
+
+
+// A small, deliberately read-only teaching aid. Only public cards and the
+// human player's cards are used. Not available in online games.
+QVariantMap GameHandler::kibitzerAdvice() const
+{
+    QVariantMap out;
+    out["status"] = QStringLiteral("unavailable");
+
+    if (!m_game || m_spectating || !isLocalGameRunning() || !isMyTurnToAct())
+        return out;
+    auto hand = m_game->getCurrentHand();
+    if (!hand || m_players.isEmpty())
+        return out;
+
+    const QVariantMap hero = m_players.at(0).toMap();
+    const int hole[2] = {hero.value("card0", -1).toInt(),
+                         hero.value("card1", -1).toInt()};
+    if (hole[0] < 0 || hole[0] >= 52 || hole[1] < 0 || hole[1] >= 52)
+        return out;
+    const int boardSize = m_boardCardCount;
+    if (boardSize != 0 && boardSize != 3 && boardSize != 4 && boardSize != 5)
+        return out;
+    if (m_boardCards.size() < boardSize)
+        return out;
+    int board[5] = {-1, -1, -1, -1, -1};
+    for (int i = 0; i < boardSize; ++i)
+        board[i] = m_boardCards.at(i).toInt();
+
+    // The number of eligible opponents, NEVER their hidden hole cards.
+    // This distinction matters: the local engine may know those cards, but
+    // a human-facing adviser must behave as though it does not.
+    int opponents = 0;
+    auto activePlayers = hand->getActivePlayerList();
+    if (!activePlayers)
+        return out;
+    for (const auto &player : *activePlayers) {
+        if (player->getMyID() == 0) continue;
+        if (player->getMyAction() == PLAYER_ACTION_FOLD) continue;
+        ++opponents;
+    }
+    if (opponents <= 0) return out;
+
+    // Nullptr ranges mean uniformly random unseen opponent hole cards.
+    // With identical uniform ranges, the existing equity calculator's
+    // sequential rejection sampler gives unbiased joint card deals.
+    // Its range-conditioned multi-opponent mode is NOT used here.
+    const auto estimate = EquityCalculator::equity(hole, board, boardSize,
+                                                   opponents, nullptr, 2500);
+    if (estimate.samples < 1000)
+        return out;
+
+    const int price = std::max(0, m_callAmount);
+    const int pot = std::max(0, m_totalPot); // includes bets already committed
+    const double required = price > 0 ? double(price) / double(pot + price) : 0.0;
+    const double equity = estimate.equity;
+    out["status"] = QStringLiteral("ready");
+    out["equity"] = equity;
+    out["required"] = required;
+    out["opponents"] = opponents;
+    out["pot"] = pot;
+    out["price"] = price;
+    out["samples"] = estimate.samples;
+    out["hero"] = logCard(hole[0]) + QStringLiteral(" ") + logCard(hole[1]);
+    out["phase"] = m_phaseText;
+    out["canRaise"] = m_maxRaiseAmount > 0;
+
+    // This is explicitly NOT a full EV-maximizing poker strategy.
+    // Against an actual bet, the caller's range is NOT random. The 0.12 gap
+    // is a caution buffer, not a statistically derived confidence interval.
+    if (price == 0) {
+        out["headline"] = QStringLiteral("CHECK is free");
+        out["explanation"] = QStringLiteral(
+            "A bet might be stronger; fold equity is not modeled.");
+    } else if (equity > required + 0.12) {
+        out["headline"] = QStringLiteral("CALL passes basic equity check");
+        out["explanation"] = QStringLiteral(
+            "But a bet or raise changes the opponent's likely range.");
+    } else if (equity < required - 0.12) {
+        out["headline"] = QStringLiteral("FOLD merits consideration");
+        out["explanation"] = QStringLiteral(
+            "Estimated equity is below pot odds against random hands.");
+    } else {
+        out["headline"] = QStringLiteral("CLOSE decision");
+        out["explanation"] = QStringLiteral(
+            "Opponent ranges and future betting could change the answer.");
+    }
+    return out;
+}
+
+
+// Read-only, local-play educational review; a new report is available after
+// each local hand. Never exposed to internet games.
+QVariantMap GameHandler::kibitzerReview() const
+{
+    return m_kibitzerLastReview;
+}
+
+void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
+{
+    if (!isLocalGameRunning() || m_spectating || !m_game) return;
+    auto hand = m_game->getCurrentHand();
+    if (!hand) return;
+    const int handId = hand->getMyID();
+    if (handId != m_kibitzerHandId) {
+        // The normal path finalizes at onShowdown(). This is a fallback for
+        // abandoned/short-circuited hands, and never merges two hands.
+        finishKibitzerHand();
+        m_kibitzerHandId = handId;
+        m_kibitzerEvents.clear();
+    }
+    // Use the authoritative engine state at action time, not the QML amount
+    // which can be temporarily stale during a betting transition.
+    auto seats = hand->getSeatsList();
+    auto bero = hand->getCurrentBeRo();
+    auto board = hand->getBoard();
+    if (!seats || seats->empty() || !bero || !board) return;
+    const auto heroPlayer = seats->front();
+    const int price = std::max(0, std::min(heroPlayer->getMyCash(),
+                                         bero->getHighestSet() - heroPlayer->getMySet()));
+    const int pot = std::max(0, board->getPot() + board->getSets());
+    const QVariantMap estimate = kibitzerAdvice();
+    bool hasAllIn = false;
+    auto active = hand->getActivePlayerList();
+    if (active) {
+        for (const auto &player : *active) {
+            if (player->getMyAction() == PLAYER_ACTION_ALLIN)
+                hasAllIn = true;
+        }
+    }
+    // If our own call commits the remaining stack, side-pot/main-pot
+    // eligibility must be accounted for; the MVP does not model those.
+    if (price > 0 && heroPlayer->getMyCash() <= price)
+        hasAllIn = true;
+
+    KibitzerReviewLogic::Action choice = KibitzerReviewLogic::Action::BetOrRaise;
+    if (chosenAction == QLatin1String("FOLD"))
+        choice = KibitzerReviewLogic::Action::Fold;
+    else if (chosenAction == QLatin1String("CHECK/CALL"))
+        choice = KibitzerReviewLogic::Action::CheckOrCall;
+    else if (chosenAction == QLatin1String("ALL-IN"))
+        choice = KibitzerReviewLogic::Action::AllIn;
+
+    KibitzerReviewLogic::Input in;
+    in.action = choice;
+    in.price = price;
+    in.equityAvailable = estimate.value("status").toString() == QLatin1String("ready")
+                         && estimate.value("price").toInt() == price
+                         && estimate.value("pot").toInt() == pot;
+    in.equity = estimate.value("equity").toDouble();
+    in.required = estimate.value("required").toDouble();
+    in.samples = estimate.value("samples").toInt();
+    in.allInOrSidePot = hasAllIn;
+    const auto assessment = KibitzerReviewLogic::assess(in);
+    QString rating;
+    switch (assessment.rating) {
+    case KibitzerReviewLogic::Rating::ClearMistake: rating = QStringLiteral("CLEAR MISTAKE"); break;
+    case KibitzerReviewLogic::Rating::Review: rating = QStringLiteral("REVIEW"); break;
+    case KibitzerReviewLogic::Rating::NoFlag: rating = QStringLiteral("NO FLAG"); break;
+    default: rating = QStringLiteral("NOT GRADED"); break;
+    }
+
+    QVariantMap event;
+    event["phase"] = m_phaseText;
+    event["cards"] = estimate.value("hero", QStringLiteral("?"));
+    event["action"] = chosenAction;
+    event["amount"] = amount;
+    event["price"] = price;
+    event["pot"] = pot;
+    event["equity"] = in.equityAvailable ? QVariant(in.equity) : QVariant();
+    event["required"] = in.equityAvailable ? QVariant(in.required) : QVariant();
+    event["samples"] = in.samples;
+    event["rating"] = rating;
+    // An all-in CALL is not a preflop raise.
+    event["aggressive"] = chosenAction == QLatin1String("BET/RAISE")
+        || (chosenAction == QLatin1String("ALL-IN")
+            && heroPlayer->getMySet() + amount > bero->getHighestSet());
+    const int button = heroPlayer->getMyButton();
+    event["position"] = button == 1 ? QStringLiteral("BTN")
+                      : button == 2 ? QStringLiteral("SB")
+                      : button == 3 ? QStringLiteral("BB")
+                                    : QStringLiteral("Other");
+    event["explanation"] = QString::fromLatin1(assessment.reason);
+    m_kibitzerEvents.append(event);
+    // Bounded memory even if the game engine revisits an action unexpectedly.
+    if (m_kibitzerEvents.size() > 64) m_kibitzerEvents.removeFirst();
+}
+
+void GameHandler::finishKibitzerHand()
+{
+    if (m_kibitzerHandId < 0 || m_kibitzerEvents.isEmpty()) return;
+    int certain = 0;
+    int review = 0;
+    for (const QVariant &v : m_kibitzerEvents) {
+        const QString rating = v.toMap().value("rating").toString();
+        if (rating == QLatin1String("CLEAR MISTAKE")) ++certain;
+        if (rating == QLatin1String("REVIEW")) ++review;
+    }
+    m_kibitzerLastReview.clear();
+    m_kibitzerLastReview["hand"] = m_kibitzerHandId;
+    m_kibitzerLastReview["entries"] = m_kibitzerEvents;
+    m_kibitzerLastReview["clearMistakes"] = certain;
+    m_kibitzerLastReview["reviewWarnings"] = review;
+    m_kibitzerLastReview["note"] = QStringLiteral(
+        "Only free-check folds are conclusive mistakes. Other warnings use "
+        "uniform-random opponent hands and are NOT proven errors.");
+	persistKibitzerHand();
+    m_kibitzerHandId = -1;
+    m_kibitzerEvents.clear();
+    emit kibitzerReviewChanged();
 }
 
 void GameHandler::refreshPotData()
@@ -1844,6 +2062,7 @@ void GameHandler::refreshChanceAndHand()
 
 void GameHandler::onNextRoundCleanGui()
 {
+	if (isLocalGameRunning()) finishKibitzerHand();
 	if (localGameCallbacksBlocked()) return;
 	onDisableMyButtons();
 	m_pot = 0;
@@ -1946,6 +2165,7 @@ void GameHandler::fold()
 	// pokerth-debug.log (different thread id), the GUI- and network-thread are
 	// touching the same Hand concurrently -> the suspected auto-fold freeze.
 	qDebug() << "[RACEDBG] gui: fold() mutating Hand BEGIN";
+	recordKibitzerAction(QStringLiteral("FOLD"), 0);
 	humanPlayer->setMyAction(PLAYER_ACTION_FOLD, true);
 	humanPlayer->setMyTurn(false);
 	hand->setPreviousPlayerID(0);
@@ -2001,6 +2221,7 @@ bool GameHandler::call(int expectedAmount)
 			 << "round=" << (int)hand->getCurrentRound()
 			 << "myAction=" << humanPlayer->getMyAction();
 
+	recordKibitzerAction(QStringLiteral("CHECK/CALL"), requiredAmount);
 	if (highestSet == 0 || humanSet >= highestSet) {
 		// A check – either no bet has been made (highestSet == 0) OR our
 		// own bet already corresponds to the highest one (the classic case:
@@ -2066,6 +2287,7 @@ void GameHandler::raise(int amount)
 			 << "myButton=" << humanPlayer->getMyButton()
 			 << "round=" << (int)hand->getCurrentRound();
 
+	recordKibitzerAction(QStringLiteral("BET/RAISE"), amount);
 	int tempCash = humanPlayer->getMyCash();
 
 	humanPlayer->setMySet(amount); // adds to set, deducts from cash
@@ -2110,6 +2332,7 @@ void GameHandler::allIn()
 	auto bero = hand->getCurrentBeRo();
 	if (!bero) return;
 
+	recordKibitzerAction(QStringLiteral("ALL-IN"), humanPlayer->getMyCash());
 	humanPlayer->setMySet(humanPlayer->getMyCash());
 	humanPlayer->setMyCash(0);
 	humanPlayer->setMyAction(PLAYER_ACTION_ALLIN, true);

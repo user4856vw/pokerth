@@ -25,6 +25,7 @@ set(POKERTH_QML_CLIENT_SRC ../../pokerth.cpp
     cpp/serverconnectionhandler.cpp
     cpp/lobbyhandler.cpp
     cpp/gamehandler.cpp
+    cpp/kibitzer_progress.cpp
     cpp/chattranslator.cpp
     cpp/texttranslator.cpp
     ../chattranslator/chattranslatorcore.cpp
@@ -122,6 +123,7 @@ set(QML_FILES
     components/ExampleAvatarPicker.qml
     components/ForumBadge.qml
     components/GameActionBar.qml
+    components/KibitzerPanel.qml
     components/GameAdminBadge.qml
     components/GameInfoPanel.qml
     components/GameListItem.qml
