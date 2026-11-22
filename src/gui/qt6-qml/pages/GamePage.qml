@@ -289,7 +289,7 @@ Rectangle {
         context: Qt.WindowShortcut
         enabled: gamePage.visible && !gamePage.spectating
                  && GameTable && GameTable.isLocalGameRunning()
-                 && !kibitzerPanel.editingRestore
+                 && !kibitzerPanel.editingRestore && !kibitzerPanel.popupOpen
         onActivated: gamePage.toggleKibitzer()
     }
     Shortcut {
@@ -1618,8 +1618,7 @@ Rectangle {
                 anchors.topMargin: 8
                 anchors.right: infoToggle.left
                 anchors.rightMargin: 8
-                checkable: true
-                checked: gamePage.kibitzerOpen
+                highlighted: gamePage.kibitzerOpen
                 onClicked: gamePage.toggleKibitzer()
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Kibitzer (K)")
