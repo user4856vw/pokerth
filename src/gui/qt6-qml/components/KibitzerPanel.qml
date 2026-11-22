@@ -18,7 +18,7 @@ Rectangle {
     property string rangeFeedback: ""
     readonly property bool customRangeActive: advice.rangeStatus === "ready"
     function refreshOpponentRanges() {
-        rangePlayers = GameTable ? GameTable.kibitzerOpponentRanges() : []
+        rangePlayers = GameTable ? GameTable.kibitzerOpponentRanges : []
     }
     function applyRange(seat, notation) {
         if (!GameTable) return
