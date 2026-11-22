@@ -592,6 +592,8 @@ private:
 	void persistKibitzerHand();
 	void recordKibitzerAction(const QString &action, int amount);
 	void finishKibitzerHand();
+	void settleKibitzerTournamentHand();
+	void finalizeKibitzerTournament(bool completed, int place, bool tied = false);
 	void refreshPlayerData();
 	void refreshBoardCards();
 	// Recompute the odds (CardsValue::calcCardsChance) + the currently best hand of your own
@@ -666,6 +668,14 @@ private:
 	QHash<int, QString> m_kibitzerManualRanges;
 	QVariantMap m_kibitzerProgress;
 	QVariantList m_kibitzerHistory;
+	QVariantList m_kibitzerTournaments;
+	QVariantMap m_kibitzerHandSettlement;
+	bool m_kibitzerTournamentActive = false;
+	int m_kibitzerTournamentEntrants = 0;
+	int m_kibitzerTournamentLastCash = 0;
+	int m_kibitzerTournamentLastSettledHand = -1;
+	int m_kibitzerTournamentHandCount = 0;
+	double m_kibitzerTournamentBbWon = 0.0;
 	int m_kibitzerSessionId = 1;
 	bool m_kibitzerHistoryWritable = true;
 	QString m_kibitzerStorageError;
