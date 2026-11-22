@@ -574,6 +574,16 @@ Rectangle {
                                     placeholderText: "Any / AA,KK,AKs..."
                                     text: opponentRow.modelData.notation
                                     font.pixelSize: 12
+                                    color: "#f6f9ff"
+                                    placeholderTextColor: "#b3c6df"
+                                    selectionColor: "#4f79a3"
+                                    selectedTextColor: "#ffffff"
+                                    background: Rectangle {
+                                        radius: 6
+                                        color: "#293d54"
+                                        border.color: rangeField.activeFocus ? "#e2d089" : "#8299b4"
+                                        border.width: 1
+                                    }
                                     onAccepted: kb.applyRange(opponentRow.modelData.seatId, text)
                                 }
                                 TrainerButton {
