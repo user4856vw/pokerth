@@ -275,6 +275,7 @@ void GameHandler::rebuildKibitzerProgress() {
     result["disclaimer"] = QStringLiteral(
         "Tracked hands must contain a recorded human decision. Free-check folds are provable errors; "
         "review warnings use random or user-assigned opponent ranges and are NOT confirmed mistakes. "
+        "Comparing model-warning rates across changing range assumptions does not measure skill. "
         "VPIP/PFR denominators are tracked hands with a preflop decision, excluding blind-only walks. "
         "Raw chip winnings are deliberately excluded: they mix skill and card luck.");
     m_kibitzerProgress = result;
