@@ -36,6 +36,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Qt QML resource manifest
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("src/gui/qt6-qml")
+          cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+          qrc = (root / "qml.qrc").read_text(encoding="utf-8")
+          block = re.search(r"set\(QML_FILES\s*(.*?)\n\)", cmake, re.S)
+          if block is None:
+              raise SystemExit("QML_FILES not found in CMakeLists.txt")
+          listed = set(re.findall(r"^\s*(components/[\w/-]+\.qml)\s*$", block.group(1), re.M))
+          embedded = set(re.findall(r"<file>([^<]+)</file>", qrc))
+          # These variants are packaged under an alias in svgicon.qrc.in.
+          alternate = {"components/SvgIconImage.qml", "components/SvgIconVector.qml"}
+          missing = sorted(listed - embedded - alternate)
+          if missing:
+              raise SystemExit("QML components missing from qml.qrc: " + ", ".join(missing))
+          print(f"Verified {len(listed - alternate)} packaged QML components")
+          PY
       - name: JDK 17
         uses: actions/setup-java@v4
         with:
