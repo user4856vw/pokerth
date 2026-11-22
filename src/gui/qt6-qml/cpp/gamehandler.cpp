@@ -1272,6 +1272,7 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     in.required = estimate.value("required").toDouble();
     in.samples = estimate.value("effectiveSamples").toInt();
     in.allInOrSidePot = hasAllIn;
+    in.manualRanges = estimate.value("rangeStatus").toString() == QLatin1String("ready");
     const auto assessment = KibitzerReviewLogic::assess(in);
     QString rating;
     switch (assessment.rating) {
