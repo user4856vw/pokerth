@@ -1472,7 +1472,8 @@ void GameHandler::settleKibitzerTournamentHand()
     // somebody else finally wins. Multiple players busted in one hand share
     // a rank (their tie is explicitly marked in the archive).
     if (heroCash == 0 && remaining > 0)
-        finalizeKibitzerTournament(true, remaining + 1, busts > 1);
+        finalizeKibitzerTournament(true, remaining + 1,
+            hand->getStartQuantityPlayers() - remaining > 1);
     else if (heroCash > 0 && remaining == 1)
         finalizeKibitzerTournament(true, 1, false);
 }
