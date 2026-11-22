@@ -138,6 +138,54 @@ Rectangle {
         return label + ": " + n + "/" + d + " × 100 = "
                + (d ? kb.fmt(100 * n / d) : "N/A (no observations)") + "\n"
     }
+    function signedNumber(v, digits) {
+        var x = Number(v || 0)
+        return (x > 0 ? "+" : "") + x.toFixed(digits || 1)
+    }
+    function explainTournament(topic) {
+        var t = kb.progress.tournament || {}
+        var body = "LOCAL TOURNAMENTS (completed games only)\n"
+                 + "Completed " + (t.completed || 0) + "; wins " + (t.wins || 0)
+                 + "; abandoned " + (t.abandoned || 0) + ".\n"
+                 + "Win rate = wins / completed tournaments = "
+                 + t.wins + "/" + t.completed + " × 100 = "
+                 + (t.completed ? kb.fmt(t.winPercent) : "N/A") + ".\n"
+                 + "Average place = sum of finishing ranks / completed tournaments: "
+                 + (t.completed ? Number(t.averagePlace).toFixed(2) : "N/A") + ".\n"
+                 + "A simultaneous elimination may share a place; aborted tournaments "
+                 + "never contribute a made-up rank.\n\n"
+                 + "REALIZED TOURNAMENT CHIP BB/100\n"
+                 + "For every settled local hand, net chips = closing stack minus "
+                 + "opening stack (before blinds). BB units = net chips / big blind "
+                 + "ON THAT HAND.\n"
+                 + "Sum of those BB units: " + kb.signedNumber(t.bbWon,2)
+                 + " across " + t.bbHands + " eligible dealt hands.\n"
+                 + "BB/100 = 100 × " + kb.signedNumber(t.bbWon,2) + " / " + t.bbHands
+                 + " = " + (t.bbHands ? kb.signedNumber(t.bbPer100,2) : "N/A") + ".\n"
+                 + "This includes blinds, antes, walks, folds and side-pot settlements, "
+                 + "including hands with NO human decision. Older hands without "
+                 + "settlement evidence are excluded. The archive retains at most "
+                 + kb.progress.historyLimit + " settled/action hands.\n"
+                 + "BB/100 is NOT all-in-adjusted expected value, a solver score, "
+                 + "or an Independent Chip Model (ICM) measure of prize value.\n\n"
+                 + "STACK DEPTH BREAKDOWN (before blinds)\n"
+                 + ">40BB: " + t.deepHands + " hands, "
+                 + (t.deepHands ? kb.signedNumber(t.deepBbPer100,1) : "N/A") + " BB/100.\n"
+                 + "15–40BB: " + t.mediumHands + " hands, "
+                 + (t.mediumHands ? kb.signedNumber(t.mediumBbPer100,1) : "N/A") + " BB/100.\n"
+                 + "<15BB: " + t.shortHands + " hands, "
+                 + (t.shortHands ? kb.signedNumber(t.shortBbPer100,1) : "N/A") + " BB/100.\n\n"
+                 + "RECENT INDIVIDUAL HAND CONTRIBUTIONS\n"
+        var rec = t.recentSettlements || []
+        for (var i = 0; i < rec.length; ++i) {
+            var h = rec[i]
+            body += "Hand " + h.hand + ": (" + h.endingChips + " - "
+                + h.startingChips + ") / " + h.bigBlind
+                + " = " + kb.signedNumber(h.bbWon,2) + " BB\n"
+        }
+        if (!rec.length) body += "No new-style settled hands yet.\n"
+        kb.explain(topic, body)
+    }
     function explainSummary(title, m, context) {
         if (!m) return
         var body = (context || "") + "\n"
@@ -782,6 +830,107 @@ Rectangle {
                         text: "Only hands with your recorded decisions count. "
                               + "All rates show their denominators; no artificial 'skill score'."
                     }
+                    Rectangle { width: parent.width; height: 1; color: "#556781" }
+                    Text {
+                        color: "#f0d891"; font.bold: true
+                        text: "Tournament results · local games"
+                    }
+                    Text {
+                        width: parent.width; color: "white"; wrapMode: Text.WordWrap
+                        font.pixelSize: 13; font.bold: true
+                        text: {
+                            var t = kb.progress.tournament || {}
+                            return "Wins: " + (t.wins || 0) + "/" + (t.completed || 0)
+                                + " completed (" + (t.completed ? kb.fmt(t.winPercent) : "N/A") + ")"
+                                + " · avg finish " + (t.completed
+                                    ? Number(t.averagePlace).toFixed(2) : "N/A")
+                                + " · abandoned " + (t.abandoned || 0) + " ⓘ"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainTournament("Tournament finishes — definitions")
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#b8efd0"; wrapMode: Text.WordWrap
+                        font.pixelSize: 13; font.bold: true
+                        text: {
+                            var t = kb.progress.tournament || {}
+                            return "Realized chip BB/100: "
+                                + (t.bbHands ? kb.signedNumber(t.bbPer100,1) : "N/A")
+                                + " · " + (t.bbHands || 0) + " settled hands"
+                                + " · Σ " + kb.signedNumber(t.bbWon,1) + " BB ⓘ"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainTournament("BB/100 — exact arithmetic and inputs")
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#b8c9df"; wrapMode: Text.WordWrap
+                        font.pixelSize: 11
+                        text: {
+                            var t = kb.progress.tournament || {}
+                            return "By starting stack depth: >40BB "
+                                + (t.deepHands ? kb.signedNumber(t.deepBbPer100,1) : "N/A")
+                                + " (" + (t.deepHands || 0) + " hands)"
+                                + " · 15–40BB "
+                                + (t.mediumHands ? kb.signedNumber(t.mediumBbPer100,1) : "N/A")
+                                + " (" + (t.mediumHands || 0) + ")"
+                                + " · <15BB "
+                                + (t.shortHands ? kb.signedNumber(t.shortBbPer100,1) : "N/A")
+                                + " (" + (t.shortHands || 0) + ") ⓘ"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainTournament("Stack-depth normalized BB/100")
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#aebfd7"; wrapMode: Text.WordWrap
+                        font.pixelSize: 11
+                        text: {
+                            var t = kb.progress.tournament || {}
+                            if (!t.active) return "No local tournament currently in progress."
+                            return "Current tournament: " + t.currentEntrants
+                                + " entrants · " + t.currentHands + " settled hands"
+                                + " · stack " + t.currentStack
+                                + " · " + (t.currentHands
+                                    ? kb.signedNumber(t.currentBbPer100,1) : "N/A")
+                                + " BB/100 so far."
+                        }
+                    }
+                    Text {
+                        color: "#f0d891"; font.bold: true
+                        text: "Recent tournament finishes"
+                    }
+                    Repeater {
+                        model: (kb.progress.tournament || {}).recentFinishes || []
+                        delegate: Text {
+                            required property var modelData
+                            width: dashboard.width
+                            color: "#d9e5f6"; wrapMode: Text.WordWrap; font.pixelSize: 11
+                            text: modelData.completed
+                                ? "#" + modelData.place + "/" + modelData.entrants
+                                    + (modelData.tiedPlace ? " (tied)" : "")
+                                    + " · " + modelData.hands + " hands"
+                                    + " · " + kb.signedNumber(modelData.bbWon,1) + " BB"
+                                    + " · " + modelData.finishedAt + " ⓘ"
+                                : "Abandoned · " + modelData.hands + " hands"
+                                    + " · " + modelData.finishedAt + " ⓘ"
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: kb.explainTournament("Recent tournament history — details")
+                            }
+                        }
+                    }
+                    Text {
+                        width: parent.width
+                        color: "#9fb0ca"; wrapMode: Text.WordWrap; font.pixelSize: 11
+                        text: "BB/100 measures chip accumulation, not tournament prize value. "
+                            + "Old hands without an opening/closing stack cannot be reconstructed."
+                    }
+                    Rectangle { width: parent.width; height: 1; color: "#556781" }
                     Text {
                         width: parent.width; color: "#cee7c5"; wrapMode: Text.WordWrap
                         font.pixelSize: 12
