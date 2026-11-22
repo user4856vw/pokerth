@@ -33,6 +33,7 @@
 #define EQUITYCALCULATOR_H
 
 #include <vector>
+#include <cstdint>
 
 class HoleCardsRange;
 
@@ -60,23 +61,26 @@ public:
 		// Runs actually evaluated. Can be smaller than requested if the
 		// opponent ranges can hardly be filled without collisions.
 		int samples;
+		// Monte Carlo standard error of the equity estimate (fraction, not percent).
+		double standardError;
 	};
 
 	/* holeCards: two own cards.
 	 * boardCards/boardSize: 0 (preflop), 3, 4 or 5 open cards.
 	 * opponentRanges: one entry per opponent; nullptr = any hand.
 	 * samples: desired number of simulation runs.
+	 * seed: nonzero => reproducible independent RNG stream; zero => existing thread RNG.
 	 */
 	static Result equity(const int* holeCards,
 						 const int* boardCards, int boardSize,
 						 const std::vector<const HoleCardsRange*>& opponentRanges,
-						 int samples);
+						 int samples, std::uint32_t seed = 0);
 
 	// Convenient case: all opponents with the same range (or nullptr).
 	static Result equity(const int* holeCards,
 						 const int* boardCards, int boardSize,
 						 int opponents, const HoleCardsRange* range,
-						 int samples);
+						 int samples, std::uint32_t seed = 0);
 };
 
 #endif
