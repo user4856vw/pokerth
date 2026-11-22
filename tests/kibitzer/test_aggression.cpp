@@ -55,6 +55,9 @@ int main() {
         in.equity = 0.43;
         assert(hasFlushDraw(in));
         assert(assess(in).signal == Signal::SemiBluffCandidate);
+        in.price = 40; // a re-raise bluff requires the missing fold-response model
+        assert(assess(in).signal == Signal::None);
+        in.price = 0;
         in.opponents = 4;
         assert(assess(in).signal == Signal::None);
         in.opponents = 1;
