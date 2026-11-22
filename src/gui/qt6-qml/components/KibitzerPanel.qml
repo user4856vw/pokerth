@@ -142,6 +142,26 @@ Rectangle {
         var x = Number(v || 0)
         return (x > 0 ? "+" : "") + x.toFixed(digits || 1)
     }
+    function explainTournamentRecord(rec) {
+        var t = rec || {}
+        var text = "Tournament session: " + (t.session || "?") + ".\n"
+            + "Initial entrants: " + (t.entrants || "?") + ".\n"
+            + (t.completed
+                 ? "Finishing place: #" + t.place + "/" + t.entrants
+                    + (t.tiedPlace ? " (simultaneous elimination / shared rank)" : "") + ".\n"
+                 : "Abandoned: no finishing rank is assigned.\n")
+            + "Settled hands while hero remained in the tournament: " + t.hands + ".\n"
+            + "Sum of blind-normalized chip changes: " + kb.signedNumber(t.bbWon,2) + " BB.\n"
+            + "Per-tournament realized chip BB/100: "
+            + (t.hands ? kb.signedNumber(100 * t.bbWon / t.hands,2) : "N/A")
+            + " = 100 × " + kb.signedNumber(t.bbWon,2) + " / " + t.hands + ".\n"
+            + "Stack at end: " + t.lastStack + " chips.\n"
+            + "Recorded: " + t.finishedAt + ".\n\n"
+            + "Finishing place is recorded at elimination or victory, not at an arbitrary "
+            + "later hand. Simultaneous eliminations may share a rank. This measures "
+            + "local tournament results only; it is not a cash-game profitability measure."
+        kb.explain("Individual tournament — recorded outcome", text)
+    }
     function explainTournament(topic) {
         var t = kb.progress.tournament || {}
         var body = "LOCAL TOURNAMENTS (completed games only)\n"
@@ -920,7 +940,7 @@ Rectangle {
                                     + " · " + modelData.finishedAt + " ⓘ"
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: kb.explainTournament("Recent tournament history — details")
+                                onClicked: kb.explainTournamentRecord(modelData)
                             }
                         }
                     }
