@@ -1446,6 +1446,7 @@ void GameHandler::settleKibitzerTournamentHand()
     }
     const int bigBlind = 2 * hand->getSmallBlind();
     if (heroCash < 0 || bigBlind <= 0) return;
+    const int newBusts = m_kibitzerTournamentPreviousLiving - remaining;
 
     if (m_kibitzerHandId != handId) {
         finishKibitzerHand(); // handle unexpected missing previous showdown
@@ -1463,6 +1464,7 @@ void GameHandler::settleKibitzerTournamentHand()
     m_kibitzerHandSettlement = settlement;
     m_kibitzerTournamentLastSettledHand = handId;
     m_kibitzerTournamentLastCash = heroCash;
+    m_kibitzerTournamentPreviousLiving = remaining;
     ++m_kibitzerTournamentHandCount;
     m_kibitzerTournamentBbWon += settlement.value("bbWon").toDouble();
     finishKibitzerHand(); // persist immediately, including a blind-only hand
@@ -1471,8 +1473,7 @@ void GameHandler::settleKibitzerTournamentHand()
     // somebody else finally wins. Multiple players busted in one hand share
     // a rank (their tie is explicitly marked in the archive).
     if (heroCash == 0 && remaining > 0)
-        finalizeKibitzerTournament(true, remaining + 1,
-            hand->getStartQuantityPlayers() - remaining > 1);
+        finalizeKibitzerTournament(true, remaining + 1, newBusts > 1);
     else if (heroCash > 0 && remaining == 1)
         finalizeKibitzerTournament(true, 1, false);
 }
@@ -2920,6 +2921,7 @@ void GameHandler::startLocalGame()
 	++m_localGameGeneration;
 	m_kibitzerTournamentActive = true;
 	m_kibitzerTournamentEntrants = startData.numberOfPlayers;
+	m_kibitzerTournamentPreviousLiving = startData.numberOfPlayers;
 	m_kibitzerTournamentLastCash = gameData.startMoney;
 	m_kibitzerTournamentLastSettledHand = -1;
 	m_kibitzerTournamentHandCount = 0;
