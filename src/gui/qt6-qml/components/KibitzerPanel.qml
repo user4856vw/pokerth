@@ -11,6 +11,16 @@ Rectangle {
     border.color: "#a2b3d0"
     property var advice: ({"status": "unavailable"})
     property bool expanded: false
+    property bool openRequested: false
+    readonly property bool editingRestore: restoreArea.activeFocus
+    signal closeRequested()
+    property string explanationTitle: ""
+    property string explanationBody: ""
+    property string replayResult: ""
+    property var replayEvent: null
+    property var recentDecisions: []
+    readonly property bool localEligible: GameTable && !GameTable.spectating
+                                          && GameTable.isLocalGameRunning()
     property bool forceReview: false
     property string backupMessage: ""
     property bool confirmRestore: false
@@ -21,9 +31,127 @@ Rectangle {
     readonly property bool reviewMode: forceReview || !myTurnNow
     implicitHeight: (expanded && reviewMode) ? Math.min(288, 95 + reviewLines.implicitHeight)
                     : (expanded ? 118 : 76)
-    visible: GameTable && !GameTable.spectating && GameTable.isLocalGameRunning()
-             && (myTurnNow || hasReview || (progress && progress.totalHands > 0))
+    visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
+    function explain(title, body, decision) {
+        explanationTitle = title
+        explanationBody = body
+        replayResult = ""
+        replayEvent = decision || null
+        explanationPopup.open()
+    }
+    function rate(label, numerator, denominator) {
+        var n = Number(numerator || 0), d = Number(denominator || 0)
+        return label + ": " + n + "/" + d + " × 100 = "
+               + (d ? kb.fmt(100 * n / d) : "N/A (no observations)") + "\n"
+    }
+    function explainSummary(title, m, context) {
+        if (!m) return
+        var body = (context || "") + "\n"
+        body += "Hands: " + m.hands + "; recorded decisions: " + m.decisions + ".\n"
+        body += kb.rate("Free-check folds", m.clearMistakes, m.freeOpportunities)
+        body += kb.rate("Model review warnings", m.reviewWarnings, m.pricedReviewed)
+        body += kb.rate("VPIP", m.vpipHands, m.preflopObservedHands)
+        body += kb.rate("PFR", m.pfrHands, m.preflopObservedHands)
+        body += "\nAction counts: folds " + m.folds + ", checks " + m.checks
+             + ", calls " + m.calls + ", raises " + m.raises
+             + ", all-ins " + m.allIns + ", ungraded " + m.ungraded + ".\n"
+        body += "\nVPIP counts hands with voluntary preflop investment (not forced blinds); "
+             + "PFR counts preflop raises. Their denominator is hands with at least one "
+             + "recorded preflop decision. A review warning is not proof of a bad action. "
+             + "A zero denominator is shown as 0.0% in the dashboard, not as evidence of skill."
+        kb.explain(title, body)
+    }
+    function cardName(code) {
+        var ranks = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"]
+        var suits = ["♦","♥","♠","♣"]
+        return code >= 0 && code < 52 ? ranks[code % 13] + suits[Math.floor(code / 13)] : "?"
+    }
+    function cards(codes) {
+        var out = []
+        for (var i = 0; i < (codes || []).length; ++i) out.push(kb.cardName(codes[i]))
+        return out.join(" ") || "none"
+    }
+    function explainEquity() {
+        var a = kb.advice
+        if (a.status !== "ready") {
+            kb.explain("Equity estimate", "No live equity calculation is available at this moment.")
+            return
+        }
+        var se = Number(a.equityStdError || 0)
+        var body = "Hero: " + a.hero + "; board: " + kb.cards(a.boardCodes)
+                 + "; active opponents: " + a.opponents + ".\n"
+        body += "Method: " + a.modelVersion + ". Opponents' unseen cards are "
+             + "uniformly random; future community cards are randomly dealt "
+             + "without replacement. Opponents' actual hole cards are never inspected.\n"
+        body += "Valid Monte Carlo samples: " + a.samples + "/" + a.samplesRequested
+             + "; seed: " + a.seed + ".\n"
+        body += "Each trial awards 1 for an outright win, 0 for a loss, and "
+             + "1/(number of tied winners) for a split pot. Equity is the "
+             + "average share of the pot: " + kb.fmt(100 * a.equity) + ".\n"
+        body += "Outright-win frequency: " + kb.fmt(100 * a.win)
+             + "; tie frequency: " + kb.fmt(100 * a.tie) + ".\n"
+        body += "Estimated Monte Carlo standard error: " + kb.fmt(100 * se)
+             + " percentage points; approximate 95% sampling margin ±"
+             + kb.fmt(100 * 1.96 * se) + " points. This ignores opponent-range uncertainty.\n"
+        body += "Showdown equity is not full expected value. Future betting, fold equity, "
+             + "side pots and tournament ICM are excluded. Recommendations use a "
+             + "heuristic 12-percentage-point cushion, not a confidence test."
+        kb.explain("Equity — method and uncertainty", body)
+    }
+    function explainThreshold() {
+        var a = kb.advice
+        if (a.status !== "ready") return
+        var p = Number(a.pot || 0), c = Number(a.price || 0)
+        var body = "Current pot including committed bets: " + p
+             + " chips. Additional amount to call: " + c + " chips.\n"
+             + "Break-even immediate call equity = call amount / "
+             + "(current pot + call amount).\n"
+             + "Here: " + c + " / (" + p + " + " + c + ") = "
+             + kb.fmt(100 * a.required) + ".\n"
+             + "A free check costs 0, so its threshold is 0%. This simple "
+             + "model assumes no further betting and no changes in opponent ranges, "
+             + "side-pot eligibility or ICM. It does not prove calling is optimal."
+        kb.explain("Call threshold — formula and inputs", body)
+    }
+    function explainDecision(e) {
+        var a = e.snapshot || {}
+        var body = "Session " + (e.session || "?") + ", hand " + (e.hand || "?")
+             + ", street " + e.phase + ". You chose " + e.action
+             + (e.amount ? " (" + e.amount + " chips)" : "") + ".\n"
+             + "Review: " + e.rating + " — " + e.explanation + ".\n"
+             + "Pot " + e.pot + ", call " + e.price + ", position " + e.position + ".\n"
+        if (a.status === "ready" && a.modelVersion) {
+            body += "\nSnapshot: hero " + kb.cards(a.heroCodes)
+                 + "; board " + kb.cards(a.boardCodes)
+                 + "; opponents " + a.opponents + "; phase " + a.phase + ".\n"
+                 + "Model " + a.modelVersion + "; RNG seed " + a.seed
+                 + "; samples " + a.samples + "/" + a.samplesRequested + ".\n"
+                 + "Saved equity " + kb.fmt(100 * a.equity)
+                 + " ± " + kb.fmt(100 * 1.96 * Number(a.equityStdError || 0))
+                 + " percentage points (approx. 95% Monte Carlo margin); call threshold "
+                 + kb.fmt(100 * a.required) + ".\n"
+                 + "Press REPLAY CALCULATION to verify the stored estimate using the same random stream."
+            kb.explain("Saved decision — evidence and replay", body, e)
+        } else {
+            body += "\nNo seeded snapshot is available for this decision. "
+                 + "Older decisions cannot be reconstructed from aggregate statistics."
+            kb.explain("Recorded decision", body)
+        }
+    }
+    function doReplay() {
+        if (!replayEvent || !GameTable) return
+        var r = GameTable.kibitzerReplayDecision(replayEvent)
+        replayResult = r.status === "ready"
+            ? "Recomputed equity: " + kb.fmt(100 * r.equity)
+              + "; original: " + kb.fmt(100 * r.originalEquity)
+              + "; samples " + r.samples
+              + "; deterministic replay: " + (r.matched ? "MATCH" : "MISMATCH")
+            : "Cannot replay: " + (r.reason || "unknown reason")
+    }
+    function refreshHistory() {
+        recentDecisions = GameTable ? GameTable.kibitzerRecentDecisions(20) : []
+    }
 
     function refreshAdvice() {
         if (visible && myTurnNow && GameTable)
@@ -34,13 +162,17 @@ Rectangle {
         forceReview = false
         if (myTurnNow) debounce.restart()
     }
-    onVisibleChanged: if (visible && myTurnNow) debounce.restart()
+    onVisibleChanged: {
+        if (visible && myTurnNow) debounce.restart()
+        if (visible) kb.refreshHistory()
+    }
     Connections {
         target: GameTable
         function onPlayersChanged() { if (kb.myTurnNow) debounce.restart() }
         function onBoardCardsChanged() { if (kb.myTurnNow) debounce.restart() }
         function onCallAmountChanged() { if (kb.myTurnNow) debounce.restart() }
         function onTotalPotChanged() { if (kb.myTurnNow) debounce.restart() }
+        function onKibitzerProgressChanged() { kb.refreshHistory() }
     }
 
     Column {
@@ -51,7 +183,7 @@ Rectangle {
             width: parent.width
             spacing: 7
             Text {
-                width: parent.width - 103
+                width: parent.width - 145
                 color: "#ebd68a"
                 font.pixelSize: 12
                 font.bold: true
@@ -83,7 +215,19 @@ Rectangle {
                     font.pixelSize: 11
                     font.bold: true
                 }
-                MouseArea { anchors.fill: parent; onClicked: progressPopup.open() }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        kb.refreshHistory()
+                        progressPopup.open()
+                    }
+                }
+            }
+            Rectangle {
+                width: 28; height: 23
+                radius: 5; color: "#5a3e49"; border.color: "#b8a0ab"
+                Text { anchors.centerIn: parent; text: "×"; color: "white"; font.pixelSize: 18 }
+                MouseArea { anchors.fill: parent; onClicked: kb.closeRequested() }
             }
         }
         Text {
@@ -95,16 +239,22 @@ Rectangle {
             elide: Text.ElideRight
             text: kb.advice.status === "ready" ? kb.advice.headline : "No advice available"
         }
-        Text {
-            visible: !kb.reviewMode
+        Row {
+            visible: !kb.reviewMode && kb.advice.status === "ready"
             width: parent.width
-            color: "#d9e5f6"
-            font.pixelSize: 11
-            elide: Text.ElideRight
-            text: kb.advice.status === "ready"
-                  ? "Equity vs random: " + kb.fmt(100*kb.advice.equity)
-                    + " · Call threshold: " + kb.fmt(100*kb.advice.required)
-                  : ""
+            spacing: 8
+            Text {
+                width: (parent.width - 8) / 2
+                color: "#d9e5f6"; font.pixelSize: 11; elide: Text.ElideRight
+                text: "Equity: " + kb.fmt(100*kb.advice.equity) + " ⓘ"
+                MouseArea { anchors.fill: parent; onClicked: kb.explainEquity() }
+            }
+            Text {
+                width: (parent.width - 8) / 2
+                color: "#d9e5f6"; font.pixelSize: 11; elide: Text.ElideRight
+                text: "Call threshold: " + kb.fmt(100*kb.advice.required) + " ⓘ"
+                MouseArea { anchors.fill: parent; onClicked: kb.explainThreshold() }
+            }
         }
         Text {
             visible: kb.expanded && !kb.reviewMode && kb.advice.status === "ready"
@@ -142,7 +292,11 @@ Rectangle {
                         wrapMode: Text.WordWrap
                         font.pixelSize: 11
                         text: "[" + modelData.rating + "] " + modelData.phase + " "
-                              + modelData.action + ": " + modelData.explanation
+                              + modelData.action + ": " + modelData.explanation + " ⓘ"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainDecision(modelData)
+                        }
                     }
                 }
             }
