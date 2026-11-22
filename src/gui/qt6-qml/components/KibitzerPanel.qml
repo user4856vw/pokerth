@@ -182,6 +182,19 @@ Rectangle {
              + "Review: " + e.rating + " — " + e.explanation + ".\n"
              + "Pot " + e.pot + ", call " + e.price + ", position " + e.position + ".\n"
         if (a.status === "ready" && a.modelVersion) {
+            if (a.rangeScenario && a.rangeScenario.modelVersion) {
+                var rs = a.rangeScenario
+                body += "\nRANGE SENSITIVITY AT DECISION TIME:\n"
+                body += "Uniform random equity: " + kb.fmt(100 * a.equity) + ".\n"
+                body += "Manual range equity: " + kb.fmt(100 * rs.equity)
+                     + " (" + rs.samples + "/" + rs.samplesRequested + " samples).\n"
+                body += "Assumptions saved with seed " + rs.seed + ":\n"
+                for (var k = 0; k < rs.ranges.length; ++k)
+                    body += "  " + rs.ranges[k].name + ": "
+                         + (rs.ranges[k].notation || "ANY / random") + "\n"
+                body += "Those saved ranges, not the current editor settings, "
+                     + "are used during replay.\n"
+            }
             body += "\nSnapshot: hero " + kb.cards(a.heroCodes)
                  + "; board " + kb.cards(a.boardCodes)
                  + "; opponents " + a.opponents + "; phase " + a.phase + ".\n"
@@ -203,11 +216,19 @@ Rectangle {
         if (!replayEvent || !GameTable) return
         var r = GameTable.kibitzerReplayDecision(replayEvent)
         replayResult = r.status === "ready"
-            ? "Recomputed equity: " + kb.fmt(100 * r.equity)
-              + "; original: " + kb.fmt(100 * r.originalEquity)
+            ? "Random baseline: " + kb.fmt(100 * r.equity)
+              + " vs saved " + kb.fmt(100 * r.originalEquity)
               + "; samples " + r.samples
               + "; deterministic replay: " + (r.matched ? "MATCH" : "MISMATCH")
             : "Cannot replay: " + (r.reason || "unknown reason")
+        if (r.rangeStatus === "ready" || r.rangeStatus === "insufficient")
+            replayResult += "\nManual range replay: " + kb.fmt(100 * r.rangeEquity)
+                 + " vs saved " + kb.fmt(100 * r.rangeOriginalEquity)
+                 + "; compatible samples " + r.rangeSamples
+                 + "; replay: " + (r.rangeMatched ? "MATCH" : "MISMATCH")
+                 + (r.rangeStatus === "insufficient" ? " (insufficient sample size)" : "")
+        else if (r.rangeStatus === "invalid")
+            replayResult += "\nRange replay: " + r.rangeMessage
     }
     function refreshHistory() {
         recentDecisions = GameTable ? GameTable.kibitzerRecentDecisions(20) : []
