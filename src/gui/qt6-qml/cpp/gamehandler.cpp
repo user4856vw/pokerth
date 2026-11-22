@@ -1021,37 +1021,50 @@ QVariantMap GameHandler::kibitzerAdvice() const
         }
     }
 
-    // This is explicitly NOT a full EV-maximizing poker strategy.
-    // The 0.12 gap is a conservative heuristic, not a confidence interval.
-    // If manual assumptions cannot be simulated, give NO recommendation.
+    // Never treat the random baseline as a replacement when user-entered
+    // ranges cannot be sampled. The user hypotheses must remain explicit.
     if (anyCustom && out.value("rangeStatus").toString() != QLatin1String("ready")) {
         out["headline"] = QStringLiteral("NO ADVICE — incompatible ranges");
         out["explanation"] = out.value("rangeMessage").toString();
         return out;
     }
     const double judged = out.value("effectiveEquity").toDouble();
+    // For a FIXED manually selected range, separate Monte Carlo sampling
+    // uncertainty from the (unquantified) uncertainty that the range is WRONG.
+    // Retain the conservative 12-point heuristic for an uninformative random
+    // baseline; it is intentionally not a confidence interval.
+    const double gap = anyCustom ? 1.96 * out.value("rangeStdError").toDouble()
+                                 : 0.12;
+    out["comparisonMargin"] = gap;
+    out["comparisonMarginBasis"] = anyCustom
+        ? QStringLiteral("approximate 95% Monte Carlo sampling margin conditional on assigned ranges")
+        : QStringLiteral("heuristic 12-point random-baseline caution gap");
     const QString scope = anyCustom
-        ? QStringLiteral("your specified opponent ranges")
-        : QStringLiteral("uniformly random opponents");
+        ? QStringLiteral("your assigned ranges")
+        : QStringLiteral("uniformly random hands");
     if (price == 0) {
         out["headline"] = QStringLiteral("CHECK is free");
         out["explanation"] = QStringLiteral(
-            "A bet might be stronger; fold equity is not modeled.");
-    } else if (judged > required + 0.12) {
-        out["headline"] = QStringLiteral("CALL passes basic equity check");
+            "Checking costs nothing; betting may still be better. Fold equity is not modeled.");
+    } else if (judged > required + gap) {
+        out["headline"] = anyCustom
+            ? QStringLiteral("CALL favored under your ranges")
+            : QStringLiteral("CALL passes basic equity check");
         out["explanation"] = QStringLiteral(
-            "Equity exceeds immediate pot odds under %1. "
-            "Opponent responses and future betting are not modeled.").arg(scope);
-    } else if (judged < required - 0.12) {
-        out["headline"] = QStringLiteral("FOLD merits consideration");
+            "Showdown equity exceeds immediate call pot odds under %1. "
+            "This ignores future betting, opponent responses and range uncertainty.").arg(scope);
+    } else if (judged < required - gap) {
+        out["headline"] = anyCustom
+            ? QStringLiteral("FOLD favored under your ranges")
+            : QStringLiteral("FOLD merits consideration");
         out["explanation"] = QStringLiteral(
-            "Equity is below pot odds under %1. "
-            "A different range assumption could reverse this.").arg(scope);
+            "Showdown equity falls below immediate call pot odds under %1. "
+            "A different hypothesis or future betting can reverse the result.").arg(scope);
     } else {
-        out["headline"] = QStringLiteral("CLOSE decision");
+        out["headline"] = QStringLiteral("CLOSE within model uncertainty");
         out["explanation"] = QStringLiteral(
-            "Equity is close to immediate pot odds under %1. "
-            "This is not a solver-grade verdict.").arg(scope);
+            "The immediate call comparison is unresolved under %1. "
+            "This is not a full strategy model.").arg(scope);
     }
     return out;
 }
