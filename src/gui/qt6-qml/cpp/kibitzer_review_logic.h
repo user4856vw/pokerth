@@ -16,6 +16,7 @@ struct Input {
     double required = 0.0;
     int samples = 0;
     bool allInOrSidePot = false;
+    bool manualRanges = false;
 };
 
 struct Assessment {
@@ -44,9 +45,13 @@ inline Assessment assess(const Input &in) {
     const double epsilon = std::sqrt(std::log(40.0) / (2.0 * in.samples));
     const double gap = std::max(0.16, 2.0 * epsilon);
     if (in.action == Action::CheckOrCall && in.equity + gap < in.required)
-        return {Rating::Review, "Expensive call versus random opponents; actual betting ranges may differ."};
+        return {Rating::Review, in.manualRanges
+            ? "Expensive call under your assigned ranges; assumptions and future betting may differ."
+            : "Expensive call versus random opponents; actual betting ranges may differ."};
     if (in.action == Action::Fold && in.equity > in.required + gap)
-        return {Rating::Review, "Folded despite favorable random-hand pot odds; a strong range can justify it."};
+        return {Rating::Review, in.manualRanges
+            ? "Folded despite favorable pot odds under your assigned ranges; these are only assumptions."
+            : "Folded despite favorable random-hand pot odds; a strong range can justify it."};
     return {Rating::NoFlag, "No clear discrepancy under the simplified model."};
 }
 } // namespace KibitzerReviewLogic
