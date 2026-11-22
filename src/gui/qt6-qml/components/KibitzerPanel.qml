@@ -50,6 +50,11 @@ Rectangle {
                  + "; seed: " + b.seed
                  + "; sampling standard error: "
                  + (100*a.rangeStdError).toFixed(2) + " percentage points.\n"
+            body += "Call threshold: " + fmt(100*a.required) + ". "
+                 + "Advice comparison margin: " + (100*a.comparisonMargin).toFixed(2)
+                 + " percentage points (" + a.comparisonMarginBasis + ").\n"
+            body += "Your range hypothesis is NOT statistically validated by "
+                 + "these error bars.\n"
         } else {
             body += "Range scenario unavailable: " + (a.rangeMessage || "insufficient compatible deals") + "\n"
         }
@@ -155,8 +160,11 @@ Rectangle {
                  + "value to inspect each range and the sampler. "
                  + "The baseline remains available for comparison.\n"
         body += "Showdown equity is not full expected value. Future betting, fold equity, "
-             + "side pots and tournament ICM are excluded. Recommendations use a "
-             + "heuristic 12-percentage-point cushion, not a confidence test."
+             + "side pots and tournament ICM are excluded. The random baseline uses a "
+             + "heuristic 12-percentage-point caution gap. When you assign ranges, "
+             + "the pot-odds comparison instead uses an approximate 95% Monte Carlo "
+             + "sampling margin, conditional on your assumptions being right. "
+             + "That margin does NOT measure model or range-selection uncertainty."
         kb.explain("Equity — method and uncertainty", body)
     }
     function explainThreshold() {
