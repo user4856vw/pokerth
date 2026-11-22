@@ -1314,7 +1314,7 @@ void GameHandler::finishKibitzerHand()
     m_kibitzerLastReview["reviewWarnings"] = review;
     m_kibitzerLastReview["note"] = QStringLiteral(
         "Only free-check folds are conclusive mistakes. Other warnings use "
-        "uniform-random opponent hands and are NOT proven errors.");
+        "uniform-random or user-selected opponent ranges and are NOT proven errors.");
 	persistKibitzerHand();
     m_kibitzerHandId = -1;
     m_kibitzerEvents.clear();
