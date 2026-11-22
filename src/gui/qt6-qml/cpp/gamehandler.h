@@ -236,6 +236,8 @@ public:
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
 	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
+	Q_INVOKABLE QVariantMap kibitzerReplayDecision(const QVariantMap &decision) const;
+	Q_INVOKABLE QVariantList kibitzerRecentDecisions(int limit = 20) const;
 	// Changes whenever a local game is started or left. The delayed
 	// local game steps (QmlGuiInterface timers) remember it when scheduled and
 	// skip themselves if it changed meanwhile - otherwise a step of the old
