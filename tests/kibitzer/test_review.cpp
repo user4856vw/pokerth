@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <string>
 using namespace KibitzerReviewLogic;
 
 int main() {
@@ -17,6 +18,10 @@ int main() {
     a.equity = 0.05;
     a.required = 0.4;
     assert(assess(a).rating == Rating::Review);
+    a.manualRanges = true;
+    assert(assess(a).rating == Rating::Review);
+    assert(std::string(assess(a).reason).find("assigned ranges") != std::string::npos);
+    a.manualRanges = false;
     a.allInOrSidePot = true;
     assert(assess(a).rating == Rating::Unscored);
     a.allInOrSidePot = false;
