@@ -32,6 +32,17 @@ struct Summary {
     int abandonedTournaments = 0;
 };
 
+// When a player is eliminated, surviving stacks rank ahead of them.
+// Several players eliminated in the same hand may share that place.
+// IMPORTANT: 'previousLiving' is the count before THIS hand, not the
+// tournament's original entrant count.
+inline int eliminatedPlace(int remainingWithChips) {
+    return remainingWithChips >= 1 ? remainingWithChips + 1 : 0;
+}
+inline bool sharedElimination(int previousLiving, int remainingWithChips) {
+    return previousLiving > remainingWithChips + 1;
+}
+
 inline bool admissible(const HandResult &h) {
     return h.valid && h.bigBlind > 0 && h.startingChips >= 0
            && h.endingChips >= 0;
