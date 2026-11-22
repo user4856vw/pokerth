@@ -204,21 +204,21 @@ Rectangle {
         if (a.status !== "ready" || !a.aggression || a.aggression.status === "none")
             return
         var g = a.aggression
-        var body = "Stage A — a candidate to evaluate, NOT an instruction to bet.\\n\\n"
-                 + g.reason + "\\n\\n"
+        var body = "Stage A — a candidate to evaluate, NOT an instruction to bet.\n\n"
+                 + g.reason + "\n\n"
                  + "Your hole cards: " + a.hero + "; board: " + kb.cards(a.boardCodes)
-                 + "; opponents still in hand: " + a.opponents + ".\\n"
+                 + "; opponents still in hand: " + a.opponents + ".\n"
                  + "Conditional equity: " + kb.fmt(100*g.equity)
-                 + "; cautious comparison estimate: " + kb.fmt(100*g.lowerEquity) + ".\\n"
-                 + "Assumption: " + g.conditionalOn + ".\\n"
+                 + "; cautious comparison estimate: " + kb.fmt(100*g.lowerEquity) + ".\n"
+                 + "Assumption: " + g.conditionalOn + ".\n"
                  + "Pot: " + g.pot + " chips; call price: " + g.price
                  + "; legal raise control spans " + g.minRaise + "–"
-                 + g.maxRaise + " chips. These are legal limits, NOT suggested sizes.\\n"
-                 + "Passive comparison: " + a.passiveHeadline + ".\\n"
+                 + g.maxRaise + " chips. These are legal limits, NOT suggested sizes.\n"
+                 + "Passive comparison: " + a.passiveHeadline + ".\n"
                  + "Why this is not an EV comparison: we have NOT estimated which "
                  + "weaker hands call, which better hands fold, how often they reraise, "
                  + "or what happens on later streets. A premium preflop hand or a "
-                 + "strong draw is only a screening criterion.\\n\\n"
+                 + "strong draw is only a screening criterion.\n\n"
                  + g.explanation
         kb.explain("Aggression signal — assumptions and limitations", body)
     }
