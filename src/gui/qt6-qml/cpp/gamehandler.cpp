@@ -295,6 +295,7 @@ void GameHandler::setGame(boost::shared_ptr<Game> game)
 	m_kibitzerLastReview.clear();
 	m_kibitzerEvents.clear();
 	m_kibitzerHandId = -1;
+	m_kibitzerHandSettlement.clear();
 	m_kibitzerManualRanges.clear(); // seat numbers are specific to this game
 	emit kibitzerRangesChanged();
 	emit kibitzerReviewChanged();
@@ -1397,7 +1398,7 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
 
 void GameHandler::finishKibitzerHand()
 {
-    if (m_kibitzerHandId < 0 || m_kibitzerEvents.isEmpty()) return;
+    if (m_kibitzerHandId < 0 || (m_kibitzerEvents.isEmpty() && m_kibitzerHandSettlement.isEmpty())) return;
     int certain = 0;
     int review = 0;
     for (const QVariant &v : m_kibitzerEvents) {
@@ -1408,6 +1409,8 @@ void GameHandler::finishKibitzerHand()
     m_kibitzerLastReview.clear();
     m_kibitzerLastReview["hand"] = m_kibitzerHandId;
     m_kibitzerLastReview["entries"] = m_kibitzerEvents;
+    if (!m_kibitzerHandSettlement.isEmpty())
+        m_kibitzerLastReview["settlement"] = m_kibitzerHandSettlement;
     m_kibitzerLastReview["clearMistakes"] = certain;
     m_kibitzerLastReview["reviewWarnings"] = review;
     m_kibitzerLastReview["note"] = QStringLiteral(
@@ -1416,7 +1419,83 @@ void GameHandler::finishKibitzerHand()
 	persistKibitzerHand();
     m_kibitzerHandId = -1;
     m_kibitzerEvents.clear();
+    m_kibitzerHandSettlement.clear();
     emit kibitzerReviewChanged();
+}
+
+// Called once for each settled local hand AFTER the engine has distributed
+// the pot. The baseline is the previous hand's final stack, or tournament
+// starting chips for hand one; this includes blinds, antes, wins and losses.
+// It also records hands where the human never clicked a decision button.
+void GameHandler::settleKibitzerTournamentHand()
+{
+    if (!m_kibitzerTournamentActive || !m_game || !isLocalGameRunning())
+        return;
+    const auto hand = m_game->getCurrentHand();
+    if (!hand) return;
+    const int handId = hand->getMyID();
+    if (handId == m_kibitzerTournamentLastSettledHand) return;
+    const auto seats = hand->getSeatsList();
+    if (!seats) return;
+
+    int heroCash = -1;
+    int remaining = 0, busts = 0;
+    for (const auto &p : *seats) {
+        if (p->getMyID() == 0) heroCash = p->getMyCash();
+        if (p->getMyCash() > 0) ++remaining;
+        else ++busts;
+    }
+    const int bigBlind = 2 * hand->getSmallBlind();
+    if (heroCash < 0 || bigBlind <= 0) return;
+
+    if (m_kibitzerHandId != handId) {
+        finishKibitzerHand(); // handle unexpected missing previous showdown
+        m_kibitzerHandId = handId;
+        m_kibitzerEvents.clear();
+    }
+    const int before = m_kibitzerTournamentLastCash;
+    QVariantMap settlement;
+    settlement["startingChips"] = before;
+    settlement["endingChips"] = heroCash;
+    settlement["bigBlind"] = bigBlind;
+    settlement["chipDelta"] = heroCash - before;
+    settlement["bbWon"] = double(heroCash - before) / bigBlind;
+    settlement["observed"] = true;
+    m_kibitzerHandSettlement = settlement;
+    m_kibitzerTournamentLastSettledHand = handId;
+    m_kibitzerTournamentLastCash = heroCash;
+    ++m_kibitzerTournamentHandCount;
+    m_kibitzerTournamentBbWon += settlement.value("bbWon").toDouble();
+    finishKibitzerHand(); // persist immediately, including a blind-only hand
+
+    // Placements are assigned at elimination, NOT at the later moment when
+    // somebody else finally wins. Multiple players busted in one hand share
+    // a rank (their tie is explicitly marked in the archive).
+    if (heroCash == 0 && remaining > 0)
+        finalizeKibitzerTournament(true, remaining + 1, busts > 1);
+    else if (heroCash > 0 && remaining == 1)
+        finalizeKibitzerTournament(true, 1, false);
+}
+
+void GameHandler::finalizeKibitzerTournament(bool completed, int place, bool tied)
+{
+    if (!m_kibitzerTournamentActive) return;
+    m_kibitzerTournamentActive = false;
+    QVariantMap row;
+    row["session"] = m_kibitzerSessionId;
+    row["entrants"] = m_kibitzerTournamentEntrants;
+    row["completed"] = completed;
+    row["place"] = completed ? place : 0;
+    row["tiedPlace"] = completed && tied;
+    row["hands"] = m_kibitzerTournamentHandCount;
+    row["bbWon"] = m_kibitzerTournamentBbWon;
+    row["lastStack"] = m_kibitzerTournamentLastCash;
+    row["finishedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    // An interrupted/abandoned tournament never receives a fabricated rank.
+    m_kibitzerTournaments.append(row);
+    while (m_kibitzerTournaments.size() > 1000) m_kibitzerTournaments.removeFirst();
+    saveKibitzerProgress();
+    rebuildKibitzerProgress();
 }
 
 void GameHandler::refreshPotData()
@@ -2298,6 +2377,9 @@ bool GameHandler::checkLocalGameOver()
 	}
 	if (playersWithCash > 1) return false;
 
+	// Idempotent if the earlier showdown callback already recorded the final
+	// hand and placement; protects against animation sequencing changes.
+	settleKibitzerTournamentHand();
 	m_localGameOver = true;
 
 	// A log entry as in the widgets client ("<name> wins game <n>!").
@@ -2781,6 +2863,7 @@ void GameHandler::showMyCards()
 void GameHandler::startLocalGame()
 {
 	if (!m_session) return;
+	if (m_kibitzerTournamentActive) finalizeKibitzerTournament(false, 0);
 	m_localGameExitRequested = false;
 	m_localGameOver = false;
 
@@ -2835,6 +2918,12 @@ void GameHandler::startLocalGame()
 	// Before the start, not in setGame(): startLocalGame() already deals the
 	// first hand and schedules its steps, which must count as the new game.
 	++m_localGameGeneration;
+	m_kibitzerTournamentActive = true;
+	m_kibitzerTournamentEntrants = startData.numberOfPlayers;
+	m_kibitzerTournamentLastCash = gameData.startMoney;
+	m_kibitzerTournamentLastSettledHand = -1;
+	m_kibitzerTournamentHandCount = 0;
+	m_kibitzerTournamentBbWon = 0.0;
 	m_session->startLocalGame(gameData, startData);
 
 	// Sync m_game so action methods and refreshes work immediately
@@ -2847,6 +2936,7 @@ void GameHandler::endLocalGame()
 	if (!m_session) return;
 	if (m_session->isNetworkClientRunning()) return;
 
+	if (m_kibitzerTournamentActive) finalizeKibitzerTournament(false, 0);
 	m_localGameExitRequested = true;
 	setWaitingForNextHand(false);
 	m_game.reset();
@@ -3049,6 +3139,7 @@ void GameHandler::onShowdown()
 	closeMyTurnWindow();   // in the showdown nobody waits for me any more
 	refreshPlayerData();
 	computeCallAndRaiseAmounts(); // Buttons sofort deaktivieren
+	if (isLocalGameRunning()) settleKibitzerTournamentHand();
 
 	// The pot is already distributed. Determine the winners and separate the main/side pot exactly
 	// like the widgets client (gameTableImpl::postRiverRunAnimation3).
