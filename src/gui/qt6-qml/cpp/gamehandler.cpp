@@ -28,6 +28,9 @@
 #include <QUrl>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QRandomGenerator>
+#include <cmath>
+#include <cstdint>
 #include <QRegularExpression>
 #include "chatcolors.h"
 #include "styleprovider.h"
@@ -843,8 +846,12 @@ QVariantMap GameHandler::kibitzerAdvice() const
     // With identical uniform ranges, the existing equity calculator's
     // sequential rejection sampler gives unbiased joint card deals.
     // Its range-conditioned multi-opponent mode is NOT used here.
+    // Nonzero seed makes this particular estimate exactly replayable later.
+    // The seed is independent of the game engine and never reveals bot cards.
+    constexpr int kSamples = 2500;
+    const std::uint32_t seed = QRandomGenerator::global()->generate() | 1U;
     const auto estimate = EquityCalculator::equity(hole, board, boardSize,
-                                                   opponents, nullptr, 2500);
+                                                   opponents, nullptr, kSamples, seed);
     if (estimate.samples < 1000)
         return out;
 
@@ -859,6 +866,16 @@ QVariantMap GameHandler::kibitzerAdvice() const
     out["pot"] = pot;
     out["price"] = price;
     out["samples"] = estimate.samples;
+    out["samplesRequested"] = kSamples;
+    out["equityStdError"] = estimate.standardError;
+    out["win"] = estimate.win;
+    out["tie"] = estimate.tie;
+    out["seed"] = static_cast<quint64>(seed);
+    out["modelVersion"] = QStringLiteral("uniform-random-mt19937-v1");
+    out["heroCodes"] = QVariantList{hole[0], hole[1]};
+    QVariantList boardCodes;
+    for (int i = 0; i < boardSize; ++i) boardCodes.append(board[i]);
+    out["boardCodes"] = boardCodes;
     out["hero"] = logCard(hole[0]) + QStringLiteral(" ") + logCard(hole[1]);
     out["phase"] = m_phaseText;
     out["canRaise"] = m_maxRaiseAmount > 0;
@@ -882,6 +899,87 @@ QVariantMap GameHandler::kibitzerAdvice() const
         out["headline"] = QStringLiteral("CLOSE decision");
         out["explanation"] = QStringLiteral(
             "Opponent ranges and future betting could change the answer.");
+    }
+    return out;
+}
+
+
+// A stored snapshot can be replayed even after the hand has ended.
+// Never trust imported archives to provide valid card codes or sample counts.
+QVariantMap GameHandler::kibitzerReplayDecision(const QVariantMap &decision) const
+{
+    QVariantMap out;
+    out["status"] = QStringLiteral("unavailable");
+    const QVariantMap snapshot = decision.value("snapshot").toMap();
+    if (snapshot.value("modelVersion").toString() !=
+            QLatin1String("uniform-random-mt19937-v1")) {
+        out["reason"] = QStringLiteral("No compatible seeded snapshot (older decisions cannot be replayed).");
+        return out;
+    }
+    const QVariantList hero = snapshot.value("heroCodes").toList();
+    const QVariantList board = snapshot.value("boardCodes").toList();
+    const int opponents = snapshot.value("opponents").toInt();
+    const int requested = snapshot.value("samplesRequested").toInt();
+    const quint64 rawSeed = snapshot.value("seed").toULongLong();
+    if (hero.size() != 2 || (board.size() != 0 && board.size() != 3
+          && board.size() != 4 && board.size() != 5)
+        || opponents < 1 || opponents > 9 || requested < 1 || requested > 10000
+        || rawSeed == 0 || rawSeed > 0xFFFFFFFFULL) {
+        out["reason"] = QStringLiteral("Snapshot parameters are invalid.");
+        return out;
+    }
+    int holeCodes[2] = {hero.at(0).toInt(), hero.at(1).toInt()};
+    int boardCodes[5] = {-1, -1, -1, -1, -1};
+    quint64 seen = 0;
+    for (int card : holeCodes) {
+        if (card < 0 || card > 51 || (seen & (1ULL << card))) {
+            out["reason"] = QStringLiteral("Snapshot contains invalid hole cards.");
+            return out;
+        }
+        seen |= 1ULL << card;
+    }
+    for (qsizetype i = 0; i < board.size(); ++i) {
+        const int card = board.at(i).toInt();
+        if (card < 0 || card > 51 || (seen & (1ULL << card))) {
+            out["reason"] = QStringLiteral("Snapshot contains invalid board cards.");
+            return out;
+        }
+        boardCodes[i] = card;
+        seen |= 1ULL << card;
+    }
+    const auto estimate = EquityCalculator::equity(holeCodes, boardCodes,
+        static_cast<int>(board.size()), opponents, nullptr, requested,
+        static_cast<std::uint32_t>(rawSeed));
+    if (estimate.samples <= 0) {
+        out["reason"] = QStringLiteral("Sampler returned no valid deals.");
+        return out;
+    }
+    const double originalEquity = snapshot.value("equity").toDouble();
+    const int originalSamples = snapshot.value("samples").toInt();
+    out["status"] = QStringLiteral("ready");
+    out["equity"] = estimate.equity;
+    out["originalEquity"] = originalEquity;
+    out["samples"] = estimate.samples;
+    out["matched"] = estimate.samples == originalSamples
+        && std::abs(estimate.equity - originalEquity) < 1e-12;
+    out["equityStdError"] = estimate.standardError;
+    return out;
+}
+
+QVariantList GameHandler::kibitzerRecentDecisions(int limit) const
+{
+    QVariantList out;
+    limit = std::clamp(limit, 0, 40);
+    for (int i = m_kibitzerHistory.size() - 1; i >= 0 && out.size() < limit; --i) {
+        const QVariantMap hand = m_kibitzerHistory.at(i).toMap();
+        const QVariantList decisions = hand.value("entries").toList();
+        for (int j = decisions.size() - 1; j >= 0 && out.size() < limit; --j) {
+            QVariantMap entry = decisions.at(j).toMap();
+            entry["hand"] = hand.value("hand");
+            entry["session"] = hand.value("session");
+            entry["completedAt"] = hand.value("completedAt");
+            out.append(entry);
+        }
     }
     return out;
 }
@@ -968,6 +1066,9 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     event["equity"] = in.equityAvailable ? QVariant(in.equity) : QVariant();
     event["required"] = in.equityAvailable ? QVariant(in.required) : QVariant();
     event["samples"] = in.samples;
+    // Preserve a fully self-contained, non-secret evidence packet. Future releases
+    // can reproduce the same random draws without seeing the opponents' cards.
+    event["snapshot"] = estimate;
     event["rating"] = rating;
     // An all-in CALL is not a preflop raise.
     event["aggressive"] = chosenAction == QLatin1String("BET/RAISE")
