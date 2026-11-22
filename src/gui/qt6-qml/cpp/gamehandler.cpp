@@ -2934,6 +2934,9 @@ void GameHandler::startLocalGame()
 	// Sync m_game so action methods and refreshes work immediately
 	auto game = m_session->getCurrentGame();
 	if (game) setGame(game);
+	// Display the new active tournament immediately, even before its first
+	// post-hand chip settlement has been recorded.
+	rebuildKibitzerProgress();
 }
 
 void GameHandler::endLocalGame()
