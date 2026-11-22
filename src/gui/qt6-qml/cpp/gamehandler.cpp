@@ -15,6 +15,7 @@
 #include <berointerface.h>
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
+#include "kibitzer_aggression_logic.h"
 #include <equitycalculator.h>
 #include <holecardsrange.h>
 #include <playerdata.h>
@@ -1039,6 +1040,81 @@ QVariantMap GameHandler::kibitzerAdvice() const
     out["comparisonMarginBasis"] = anyCustom
         ? QStringLiteral("approximate 95% Monte Carlo sampling margin conditional on assigned ranges")
         : QStringLiteral("heuristic 12-point random-baseline caution gap");
+
+    // Stage A: flag educational aggression CANDIDATES only. There is no
+    // opponent call/fold response model, no bet sizing, and no bluff EV here.
+    // Do not read opponents' hidden cards or pretend strong showdown equity
+    // implies that worse hands will pay a raise.
+    KibitzerAggression::Input ag;
+    ag.hero[0] = hole[0]; ag.hero[1] = hole[1];
+    ag.boardSize = boardSize;
+    for (int i = 0; i < boardSize; ++i) ag.board[i] = board[i];
+    ag.opponents = opponents;
+    ag.price = price;
+    ag.minRaise = m_minRaiseAmount;
+    ag.maxRaise = m_maxRaiseAmount;
+    ag.manualRanges = anyCustom;
+    ag.equity = judged;
+    ag.standardError = anyCustom
+        ? out.value("rangeStdError").toDouble() : estimate.standardError;
+    ag.samples = out.value("effectiveSamples").toInt();
+    for (const auto &player : *activePlayers)
+        if (player->getMyAction() == PLAYER_ACTION_ALLIN)
+            ag.allInPresent = true;
+    const auto aggression = KibitzerAggression::assess(ag);
+    QVariantMap aggressionInfo;
+    aggressionInfo["status"] = QStringLiteral("none");
+    aggressionInfo["modelVersion"] = QStringLiteral("aggression-stage-a-heuristic-v1");
+    aggressionInfo["conditionalOn"] = anyCustom
+        ? QStringLiteral("your assigned ranges")
+        : QStringLiteral("uniformly random opponent cards");
+    aggressionInfo["equity"] = judged;
+    aggressionInfo["lowerEquity"] = aggression.lowerEquity;
+    aggressionInfo["samples"] = ag.samples;
+    aggressionInfo["price"] = price;
+    aggressionInfo["pot"] = pot;
+    aggressionInfo["minRaise"] = ag.minRaise;
+    aggressionInfo["maxRaise"] = ag.maxRaise;
+    aggressionInfo["allInPresent"] = ag.allInPresent;
+    aggressionInfo["premium"] = aggression.premium;
+    aggressionInfo["flushDraw"] = aggression.flushDraw;
+    aggressionInfo["openStraightDraw"] = aggression.openStraightDraw;
+    aggressionInfo["explanation"] = QStringLiteral(
+        "This is an educational signal, not an optimal-action or sizing calculation. "
+        "Opponent calling/folding frequencies, their continuing range, position, "
+        "future betting, fold equity, side pots, and tournament ICM are not modeled.");
+    switch (aggression.signal) {
+    case KibitzerAggression::Signal::PremiumPreflop:
+        aggressionInfo["status"] = QStringLiteral("premium-preflop");
+        aggressionInfo["headline"] = QStringLiteral("PREMIUM HAND: RAISE worth evaluating");
+        aggressionInfo["reason"] = QStringLiteral(
+            "Hero has QQ+, or suited AK preflop. Premium hands often benefit "
+            "from building a pot and denying free realization of equity. "
+            "This is not proof that a raise beats a call in this position.");
+        break;
+    case KibitzerAggression::Signal::ValueCandidate:
+        aggressionInfo["status"] = QStringLiteral("value-candidate");
+        aggressionInfo["headline"] = QStringLiteral("VALUE BET / RAISE worth evaluating");
+        aggressionInfo["reason"] = QStringLiteral(
+            "Conditional showdown equity is at least 82%, and the conservative "
+            "estimate is at least 70%. If weaker hands call, betting may add value. "
+            "Those calling hands and frequencies are NOT estimated.");
+        break;
+    case KibitzerAggression::Signal::SemiBluffCandidate:
+        aggressionInfo["status"] = QStringLiteral("semi-bluff-candidate");
+        aggressionInfo["headline"] = QStringLiteral("DRAW: SEMI-BLUFF worth studying");
+        aggressionInfo["reason"] = QStringLiteral(
+            "An unmade flush or open-ended straight draw provides equity when called. "
+            "A bet could also win immediately if opponents fold, but their fold "
+            "probabilities are unknown. Do not infer positive bluff EV.");
+        break;
+    default:
+        aggressionInfo["reason"] = QStringLiteral(
+            "No conservative Stage-A aggression signal for this state. "
+            "This is not advice against betting or raising.");
+        break;
+    }
+    out["aggression"] = aggressionInfo;
     const QString scope = anyCustom
         ? QStringLiteral("your assigned ranges")
         : QStringLiteral("uniformly random hands");
@@ -1065,6 +1141,14 @@ QVariantMap GameHandler::kibitzerAdvice() const
         out["explanation"] = QStringLiteral(
             "The immediate call comparison is unresolved under %1. "
             "This is not a full strategy model.").arg(scope);
+    }
+    // Keep the passive pot-odds finding as secondary context. A raise
+    // candidate never erases it, and every recommendation remains conditional.
+    out["passiveHeadline"] = out.value("headline");
+    if (aggression.signal != KibitzerAggression::Signal::None) {
+        out["headline"] = aggressionInfo.value("headline");
+        out["explanation"] = aggressionInfo.value("reason").toString() +
+             QStringLiteral(" ") + aggressionInfo.value("explanation").toString();
     }
     return out;
 }
