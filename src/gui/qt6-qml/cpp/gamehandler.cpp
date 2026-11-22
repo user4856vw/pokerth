@@ -16,6 +16,7 @@
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
 #include "kibitzer_aggression_logic.h"
+#include "kibitzer_tournament_stats.h"
 #include <equitycalculator.h>
 #include <holecardsrange.h>
 #include <playerdata.h>
@@ -1446,7 +1447,8 @@ void GameHandler::settleKibitzerTournamentHand()
     }
     const int bigBlind = 2 * hand->getSmallBlind();
     if (heroCash < 0 || bigBlind <= 0) return;
-    const int newBusts = m_kibitzerTournamentPreviousLiving - remaining;
+    const bool tiedElimination = KibitzerTournamentStats::sharedElimination(
+        m_kibitzerTournamentPreviousLiving, remaining);
 
     if (m_kibitzerHandId != handId) {
         finishKibitzerHand(); // handle unexpected missing previous showdown
@@ -1473,7 +1475,8 @@ void GameHandler::settleKibitzerTournamentHand()
     // somebody else finally wins. Multiple players busted in one hand share
     // a rank (their tie is explicitly marked in the archive).
     if (heroCash == 0 && remaining > 0)
-        finalizeKibitzerTournament(true, remaining + 1, newBusts > 1);
+        finalizeKibitzerTournament(true,
+            KibitzerTournamentStats::eliminatedPlace(remaining), tiedElimination);
     else if (heroCash > 0 && remaining == 1)
         finalizeKibitzerTournament(true, 1, false);
 }
