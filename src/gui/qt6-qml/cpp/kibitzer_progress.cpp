@@ -2,6 +2,7 @@
 // No network access and no reading of opponents' unrevealed cards.
 #include "gamehandler.h"
 #include "kibitzer_training_stats.h"
+#include "kibitzer_tournament_stats.h"
 #include <QClipboard>
 #include <QDateTime>
 #include <QDir>
@@ -20,16 +21,18 @@
 namespace {
 constexpr int kSchema = 1;
 constexpr int kMaxHands = 2500;
+constexpr int kMaxTournaments = 1000;
 constexpr int kMaxBytes = 8 * 1024 * 1024;
 QString statsPath() {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
            + QStringLiteral("/kibitzer_training_v1.json");
 }
-QJsonObject makeArchive(const QVariantList &hands, int lastSession) {
+QJsonObject makeArchive(const QVariantList &hands, const QVariantList &tournaments, int lastSession) {
     QJsonObject out;
     out[QStringLiteral("schemaVersion")] = kSchema;
     out[QStringLiteral("lastSessionId")] = lastSession;
     out[QStringLiteral("hands")] = QJsonArray::fromVariantList(hands);
+    out[QStringLiteral("tournaments")] = QJsonArray::fromVariantList(tournaments);
     return out;
 }
 // Fail closed on incompatible or corrupt data, rather than quietly
@@ -41,6 +44,22 @@ bool validateArchive(const QJsonDocument &doc) {
         !root.value(QStringLiteral("hands")).isArray()) return false;
     const auto hands = root.value(QStringLiteral("hands")).toArray();
     if (hands.size() > kMaxHands) return false;
+    if (root.contains(QStringLiteral("tournaments"))) {
+        if (!root.value(QStringLiteral("tournaments")).isArray()) return false;
+        const auto tournaments = root.value(QStringLiteral("tournaments")).toArray();
+        if (tournaments.size() > kMaxTournaments) return false;
+        for (const auto &item : tournaments) {
+            if (!item.isObject()) return false;
+            const QJsonObject t = item.toObject();
+            if (!t.value(QStringLiteral("completed")).isBool() ||
+                !t.value(QStringLiteral("entrants")).isDouble() ||
+                !t.value(QStringLiteral("place")).isDouble()) return false;
+            const int e = t.value(QStringLiteral("entrants")).toInt(-1);
+            const int p = t.value(QStringLiteral("place")).toInt(-1);
+            if (e < 2 || e > 10 || p < 0 || p > e ||
+                (t.value(QStringLiteral("completed")).toBool() && p == 0)) return false;
+        }
+    }
     for (const auto &item : hands) {
         if (!item.isObject()) return false;
         const QJsonObject hand = item.toObject();
@@ -118,6 +137,7 @@ QVariantMap GameHandler::kibitzerProgress() const { return m_kibitzerProgress; }
 
 void GameHandler::loadKibitzerProgress() {
     m_kibitzerHistory.clear();
+    m_kibitzerTournaments.clear();
     m_kibitzerSessionId = 1;
     m_kibitzerHistoryWritable = true;
     QFile f(statsPath());
@@ -135,8 +155,11 @@ void GameHandler::loadKibitzerProgress() {
             } else {
                 const QJsonObject root = doc.object();
                 m_kibitzerHistory = root.value(QStringLiteral("hands")).toArray().toVariantList();
+                m_kibitzerTournaments = root.value(QStringLiteral("tournaments")).toArray().toVariantList();
                 int previous = root.value(QStringLiteral("lastSessionId")).toInt();
                 for (const QVariant &v : m_kibitzerHistory)
+                    previous = std::max(previous, v.toMap().value("session").toInt());
+                for (const QVariant &v : m_kibitzerTournaments)
                     previous = std::max(previous, v.toMap().value("session").toInt());
                 m_kibitzerSessionId = std::max(1,previous+1);
             }
@@ -157,7 +180,7 @@ void GameHandler::saveKibitzerProgress() {
         m_kibitzerStorageError = QStringLiteral("Cannot open training data file for writing.");
         return;
     }
-    const QByteArray bytes = QJsonDocument(makeArchive(m_kibitzerHistory, m_kibitzerSessionId))
+    const QByteArray bytes = QJsonDocument(makeArchive(m_kibitzerHistory, m_kibitzerTournaments, m_kibitzerSessionId))
                                   .toJson(QJsonDocument::Compact);
     if (bytes.size() > kMaxBytes || f.write(bytes) != bytes.size() || !f.commit()) {
         f.cancelWriting();
@@ -168,7 +191,7 @@ void GameHandler::saveKibitzerProgress() {
 }
 
 void GameHandler::persistKibitzerHand() {
-    if (!m_kibitzerHistoryWritable || m_kibitzerEvents.isEmpty()) return;
+    if (!m_kibitzerHistoryWritable || (m_kibitzerEvents.isEmpty() && m_kibitzerHandSettlement.isEmpty())) return;
     QVariantMap hand = m_kibitzerLastReview;
     hand["session"] = m_kibitzerSessionId;
     hand["completedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
@@ -181,7 +204,13 @@ void GameHandler::persistKibitzerHand() {
 
 void GameHandler::rebuildKibitzerProgress() {
     using KibitzerTrainingStats::Hand;
-    const auto hands = convertHands(m_kibitzerHistory);
+    // Training action windows count only hands with recorded decisions.
+    // Chip BB/100 has a DIFFERENT denominator: every settled dealt hand,
+    // including blinds/walks where the human never had to click a button.
+    QVariantList decisionsOnly;
+    for (const QVariant &v : m_kibitzerHistory)
+        if (!v.toMap().value("entries").toList().isEmpty()) decisionsOnly.append(v);
+    const auto hands = convertHands(decisionsOnly);
     const std::size_t n = hands.size();
     const auto all = describe(summaryOf(hands,0,n));
     const std::size_t start20 = n > 20 ? n-20 : 0;
@@ -202,6 +231,7 @@ void GameHandler::rebuildKibitzerProgress() {
     result["sessionHands"] = currentSessionHands;
     result["sessionId"] = m_kibitzerSessionId;
     result["storageError"] = m_kibitzerStorageError;
+    result["recordedSettledHands"] = static_cast<int>(m_kibitzerHistory.size());
     result["historyLimit"] = kMaxHands;
 
     QVariantList streetRows;
@@ -266,8 +296,8 @@ void GameHandler::rebuildKibitzerProgress() {
         while (start>0 && hands[start-1].session==id) --start;
         QVariantMap item=describe(summaryOf(hands,start,end));
         item["id"]=id;
-        item["fromDate"]=m_kibitzerHistory.at(static_cast<int>(start)).toMap().value("completedAt");
-        item["toDate"]=m_kibitzerHistory.at(static_cast<int>(end-1)).toMap().value("completedAt");
+        item["fromDate"]=decisionsOnly.at(static_cast<int>(start)).toMap().value("completedAt");
+        item["toDate"]=decisionsOnly.at(static_cast<int>(end-1)).toMap().value("completedAt");
         sessions.append(item);
         end=start;
     }
@@ -277,14 +307,16 @@ void GameHandler::rebuildKibitzerProgress() {
         "review warnings use random or user-assigned opponent ranges and are NOT confirmed mistakes. "
         "Comparing model-warning rates across changing range assumptions does not measure skill. "
         "VPIP/PFR denominators are tracked hands with a preflop decision, excluding blind-only walks. "
-        "Raw chip winnings are deliberately excluded: they mix skill and card luck.");
+        "Tournament BB/100 is realized chip movement divided by the BB on each hand, "
+        "NOT all-in adjusted EV and NOT an ICM-adjusted measure of tournament value. "
+        "Older hands before chip settlement recording are excluded from BB/100.");
     m_kibitzerProgress = result;
     emit kibitzerProgressChanged();
 }
 
 bool GameHandler::kibitzerCopyBackup() const {
     if (!m_kibitzerHistoryWritable || !QGuiApplication::clipboard()) return false;
-    const QByteArray bytes=QJsonDocument(makeArchive(m_kibitzerHistory,m_kibitzerSessionId))
+    const QByteArray bytes=QJsonDocument(makeArchive(m_kibitzerHistory,m_kibitzerTournaments,m_kibitzerSessionId))
                            .toJson(QJsonDocument::Compact);
     QGuiApplication::clipboard()->setText(QString::fromUtf8(bytes));
     return true;
@@ -300,16 +332,21 @@ bool GameHandler::kibitzerImportBackup(const QString &json) {
     // Caller must explicitly click the labelled Restore button in QML.
     const QJsonObject root=doc.object();
     const QVariantList previousHistory=m_kibitzerHistory;
+    const QVariantList previousTournaments=m_kibitzerTournaments;
     const int previousSession=m_kibitzerSessionId;
     m_kibitzerHistory = root.value(QStringLiteral("hands")).toArray().toVariantList();
+    m_kibitzerTournaments = root.value(QStringLiteral("tournaments")).toArray().toVariantList();
     int prev=root.value(QStringLiteral("lastSessionId")).toInt();
     for (const QVariant &v : m_kibitzerHistory)
+        prev=std::max(prev,v.toMap().value("session").toInt());
+    for (const QVariant &v : m_kibitzerTournaments)
         prev=std::max(prev,v.toMap().value("session").toInt());
     m_kibitzerSessionId=prev+1; // the import starts a fresh practice session
     saveKibitzerProgress();
     if (!m_kibitzerStorageError.isEmpty()) {
         // QSaveFile leaves the original archive intact; restore RAM as well.
         m_kibitzerHistory=previousHistory;
+        m_kibitzerTournaments=previousTournaments;
         m_kibitzerSessionId=previousSession;
         rebuildKibitzerProgress();
         return false;
