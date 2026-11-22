@@ -36,29 +36,29 @@ Rectangle {
             return
         }
         var body = "Baseline against uniformly random hands: "
-            + fmt(100*a.equity) + ".\\n"
+            + fmt(100*a.equity) + ".\n"
         if (a.rangeStatus === "baseline") {
             body += "No active opponent has a manual range. Use RANGES to "
-                + "set a hypothesis for each seat; leave blank for random.\\n"
+                + "set a hypothesis for each seat; leave blank for random.\n"
         } else if (a.rangeStatus === "ready") {
             var b = a.rangeScenario
             body += "Conditioned equity under your assumptions: "
                  + fmt(100*a.rangeEquity) + "; change from random: "
                  + (a.rangeDelta >= 0 ? "+" : "") + (100*a.rangeDelta).toFixed(1)
-                 + " percentage points.\\n"
+                 + " percentage points.\n"
             body += "Monte Carlo samples: " + b.samples + "/" + b.samplesRequested
                  + "; seed: " + b.seed
                  + "; sampling standard error: "
-                 + (100*a.rangeStdError).toFixed(2) + " percentage points.\\n"
+                 + (100*a.rangeStdError).toFixed(2) + " percentage points.\n"
         } else {
-            body += "Range scenario unavailable: " + (a.rangeMessage || "insufficient compatible deals") + "\\n"
+            body += "Range scenario unavailable: " + (a.rangeMessage || "insufficient compatible deals") + "\n"
         }
         var rows = a.activeRanges || []
-        body += "\\nActive opponents and assumptions:\\n"
+        body += "\nActive opponents and assumptions:\n"
         for (var i = 0; i < rows.length; ++i)
             body += rows[i].name + " (seat " + rows[i].seatId + "): "
-                  + (rows[i].notation || "ANY / random") + "\\n"
-        body += "\\nRanges cover starting-hand TYPES, not fixed cards. "
+                  + (rows[i].notation || "ANY / random") + "\n"
+        body += "\nRanges cover starting-hand TYPES, not fixed cards. "
             + "For instance, AA represents six combinations before blockers; AKs four. "
             + "Opponent hands are sampled independently within each range, "
             + "then the entire deal is rejected on overlap. Future board cards "
@@ -151,9 +151,9 @@ Rectangle {
              + " percentage points; approximate 95% sampling margin ±"
              + kb.fmt(100 * 1.96 * se) + " points. This ignores opponent-range uncertainty.\n"
         if (a.rangeStatus !== "baseline")
-            body += "\\nA separate estimate uses your manual opponent ranges. Tap its "
+            body += "\nA separate estimate uses your manual opponent ranges. Tap its "
                  + "value to inspect each range and the sampler. "
-                 + "The baseline remains available for comparison.\\n"
+                 + "The baseline remains available for comparison.\n"
         body += "Showdown equity is not full expected value. Future betting, fold equity, "
              + "side pots and tournament ICM are excluded. Recommendations use a "
              + "heuristic 12-percentage-point cushion, not a confidence test."
@@ -250,7 +250,7 @@ Rectangle {
             width: parent.width
             spacing: 7
             Text {
-                width: parent.width - 145
+                width: parent.width - 225
                 color: "#ebd68a"
                 font.pixelSize: 12
                 font.bold: true
@@ -270,7 +270,23 @@ Rectangle {
                 }
             }
             Rectangle {
-                width: 96
+                width: 78; height: 23
+                radius: 5; color: "#465b6f"; border.color: "#9eb7cc"
+                Text {
+                    anchors.centerIn: parent
+                    text: "RANGES"; color: "white"; font.pixelSize: 11; font.bold: true
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        kb.refreshOpponentRanges()
+                        kb.rangeFeedback = ""
+                        rangePopup.open()
+                    }
+                }
+            }
+            Rectangle {
+                width: 88
                 height: 23
                 radius: 5
                 color: "#435675"
@@ -313,7 +329,7 @@ Rectangle {
             Text {
                 width: (parent.width - 8) / 2
                 color: "#d9e5f6"; font.pixelSize: 11; elide: Text.ElideRight
-                text: "Equity: " + kb.fmt(100*kb.advice.equity) + " ⓘ"
+                text: "Random: " + kb.fmt(100*kb.advice.equity) + " ⓘ"
                 MouseArea { anchors.fill: parent; onClicked: kb.explainEquity() }
             }
             Text {
@@ -321,6 +337,30 @@ Rectangle {
                 color: "#d9e5f6"; font.pixelSize: 11; elide: Text.ElideRight
                 text: "Call threshold: " + kb.fmt(100*kb.advice.required) + " ⓘ"
                 MouseArea { anchors.fill: parent; onClicked: kb.explainThreshold() }
+            }
+        }
+        Row {
+            visible: !kb.reviewMode && kb.advice.status === "ready"
+                     && kb.advice.rangeStatus !== "baseline"
+            width: parent.width
+            spacing: 8
+            Text {
+                width: (parent.width - 8) / 2
+                color: kb.customRangeActive ? "#b5f0d2" : "#ffb4a3"
+                font.pixelSize: 11; elide: Text.ElideRight
+                text: kb.customRangeActive
+                    ? "Your ranges: " + kb.fmt(100 * kb.advice.rangeEquity) + " ⓘ"
+                    : "Ranges: not reliable ⓘ"
+                MouseArea { anchors.fill: parent; onClicked: kb.describeRangeScenario() }
+            }
+            Text {
+                width: (parent.width - 8) / 2
+                color: "#d9e5f6"; font.pixelSize: 11; elide: Text.ElideRight
+                text: kb.customRangeActive
+                    ? "Δ vs random: " + (kb.advice.rangeDelta >= 0 ? "+" : "")
+                       + (100 * kb.advice.rangeDelta).toFixed(1) + "pp ⓘ"
+                    : "Edit ranges to retry"
+                MouseArea { anchors.fill: parent; onClicked: kb.describeRangeScenario() }
             }
         }
         Text {
@@ -375,6 +415,135 @@ Rectangle {
             font.pixelSize: 10
             wrapMode: Text.WordWrap
             text: "Only free-check folds are conclusive errors; other flags are hypothetical."
+        }
+    }
+
+    Popup {
+        id: rangePopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(8, (parent.width - width) / 2)
+        y: Math.max(8, (parent.height - height) / 2)
+        width: Math.min(560, parent.width - 16)
+        height: Math.min(690, parent.height - 16)
+        padding: 12
+        onOpened: kb.refreshOpponentRanges()
+        background: Rectangle { radius: 13; color: "#1c2636"; border.color: "#94a9ca" }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 8
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true; color: "#f0d891"
+                    text: "YOUR OPPONENT-RANGE ASSUMPTIONS"
+                    font.bold: true; font.pixelSize: 14; wrapMode: Text.WordWrap
+                }
+                Button { text: "Close"; onClicked: rangePopup.close() }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "Per seat; used across hands of this local game. "
+                      + "Blank / ANY means random. Edit each opponent independently. "
+                      + "No hidden bot cards are consulted."
+                color: "#d6e1f3"; font.pixelSize: 12; wrapMode: Text.WordWrap
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+                Column {
+                    width: parent.width
+                    spacing: 12
+                    Repeater {
+                        model: kb.rangePlayers
+                        delegate: Column {
+                            id: opponentRow
+                            required property var modelData
+                            width: parent.width
+                            spacing: 5
+                            Text {
+                                width: parent.width
+                                color: "#f0d891"; font.pixelSize: 13; font.bold: true
+                                text: modelData.name + " (seat " + modelData.seatId + ")"
+                                     + (modelData.folded ? " · folded this hand" : "")
+                            }
+                            Row {
+                                width: parent.width
+                                spacing: 5
+                                TextField {
+                                    id: rangeField
+                                    width: parent.width - 91
+                                    placeholderText: "Any / AA,KK,AKs..."
+                                    text: opponentRow.modelData.notation
+                                    font.pixelSize: 12
+                                    onAccepted: kb.applyRange(opponentRow.modelData.seatId, text)
+                                }
+                                Button {
+                                    width: 86
+                                    text: "Apply"
+                                    onClicked: kb.applyRange(opponentRow.modelData.seatId, rangeField.text)
+                                }
+                            }
+                            Text {
+                                width: parent.width
+                                color: "#b8c9df"; font.pixelSize: 11
+                                text: opponentRow.modelData.custom
+                                      ? "Selected: " + (100 * opponentRow.modelData.coverage).toFixed(1)
+                                        + "% of all 1,326 starting combinations (before blockers)"
+                                      : "Selected: any two cards (100%)"
+                                wrapMode: Text.WordWrap
+                            }
+                            Row {
+                                width: parent.width; spacing: 4
+                                Button {
+                                    width: (parent.width - 12) / 4
+                                    text: "TIGHT"
+                                    onClicked: kb.applyRange(opponentRow.modelData.seatId,
+                                        "99+,AJs+,AQo+,KQs")
+                                }
+                                Button {
+                                    width: (parent.width - 12) / 4
+                                    text: "MED"
+                                    onClicked: kb.applyRange(opponentRow.modelData.seatId,
+                                        "66+,ATs+,AJo+,KTs+,KQo,QJs,JTs")
+                                }
+                                Button {
+                                    width: (parent.width - 12) / 4
+                                    text: "WIDE"
+                                    onClicked: kb.applyRange(opponentRow.modelData.seatId,
+                                        "22+,A2s+,A8o+,K8s+,KTo+,Q9s+,QJo,J9s+,T9s,98s,87s")
+                                }
+                                Button {
+                                    width: (parent.width - 12) / 4
+                                    text: "ANY"
+                                    onClicked: kb.applyRange(opponentRow.modelData.seatId, "")
+                                }
+                            }
+                            Rectangle { width: parent.width; height: 1; color: "#566a84" }
+                        }
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                color: rangeFeedback.indexOf("⚠") === 0 ? "#ffb3b3" : "#c0f5ce"
+                font.pixelSize: 11; wrapMode: Text.WordWrap
+                text: kb.rangeFeedback
+                visible: kb.rangeFeedback !== ""
+            }
+            Text {
+                Layout.fillWidth: true
+                color: "#9eb2cf"; font.pixelSize: 11; wrapMode: Text.WordWrap
+                text: "Notation: AA = pocket aces; 77+ = pairs 77–AA; "
+                      + "AKs = suited ace-king; AJo = offsuit ace-jack; "
+                      + "A9s+ = A9s through AKs; 22-55 = pair interval. "
+                      + "Combine with commas. Presets are examples, not estimates "
+                      + "of what a specific bot actually holds."
+            }
         }
     }
 
