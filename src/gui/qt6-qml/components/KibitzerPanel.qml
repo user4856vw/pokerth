@@ -34,6 +34,7 @@ Rectangle {
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
     function explain(title, body, decision) {
+        if (progressPopup.visible) progressPopup.close()
         explanationTitle = title
         explanationBody = body
         replayResult = ""
@@ -312,6 +313,63 @@ Rectangle {
     }
 
     Popup {
+        id: explanationPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(8, (parent.width - width) / 2)
+        y: Math.max(8, (parent.height - height) / 2)
+        width: Math.min(570, parent.width - 16)
+        height: Math.min(610, parent.height - 16)
+        padding: 12
+        background: Rectangle { radius: 13; color: "#1c2636"; border.color: "#94a9ca" }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    color: "#f0d891"
+                    font.bold: true
+                    font.pixelSize: 16
+                    wrapMode: Text.WordWrap
+                    text: kb.explanationTitle
+                }
+                Button { text: "Close"; onClicked: explanationPopup.close() }
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+                Text {
+                    width: parent.width
+                    color: "#e7ecf6"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                    text: kb.explanationBody
+                }
+            }
+            Button {
+                Layout.fillWidth: true
+                visible: kb.replayEvent !== null
+                text: "REPLAY CALCULATION"
+                onClicked: kb.doReplay()
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: kb.replayResult !== ""
+                color: kb.replayResult.indexOf("MISMATCH") >= 0 ? "#ff9c9c" : "#b9f0cb"
+                wrapMode: Text.WordWrap
+                font.pixelSize: 12
+                text: kb.replayResult
+            }
+        }
+    }
+
+    Popup {
         id: progressPopup
         parent: Overlay.overlay
         modal: true
@@ -352,7 +410,17 @@ Rectangle {
                         font.pixelSize: 14
                         font.bold: true
                         text: kb.progress.totalHands + " tracked hands · "
-                              + kb.progress.sessionHands + " this session"
+                              + kb.progress.sessionHands + " this session ⓘ"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainSummary("Tracked hands and current session",
+                                kb.progress.all,
+                                "Total tracked hands = hands with recorded decisions. "
+                                + "Current session " + kb.progress.sessionId + " has "
+                                + kb.progress.sessionHands + " such hands; "
+                                + "history is limited to " + kb.progress.historyLimit
+                                + " hands, oldest deleted first.")
+                        }
                     }
                     Text {
                         width: parent.width
@@ -365,7 +433,12 @@ Rectangle {
                     Text {
                         width: parent.width; color: "#cee7c5"; wrapMode: Text.WordWrap
                         font.pixelSize: 12
-                        text: kb.progress.trainingFocus || ""
+                        text: (kb.progress.trainingFocus || "") + " ⓘ"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainSummary("Training focus — underlying evidence",
+                                kb.progress.all, kb.progress.trainingFocus)
+                        }
                     }
                     Rectangle { width: parent.width; height: 1; color: "#556781" }
                     Text { color: "#f0d891"; font.bold: true; text: "Last 20 hands vs preceding 20" }
@@ -379,7 +452,18 @@ Rectangle {
                                  + kb.progress.previous20.clearMistakes + "/"
                                  + kb.progress.previous20.freeOpportunities + " ("
                                  + kb.fmt(kb.progress.previous20.freeFoldPercent) + ")"
-                                 : "  · need 40 tracked hands for comparison")
+                                 : "  · need 40 tracked hands for comparison") + " ⓘ"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainSummary("Free-check folds — last 20 hands",
+                                kb.progress.last20,
+                                "Last 20 tracked hands compared with the preceding 20. "
+                                + "Free-check-fold rate = clear mistakes / opportunities "
+                                + "to take a free check. The preceding window has "
+                                + kb.progress.previous20.clearMistakes + " such mistakes / "
+                                + kb.progress.previous20.freeOpportunities + " opportunities. "
+                                + "Comparison requires 40 tracked hands.")
+                        }
                     }
                     Text {
                         width: parent.width; color: "#f7ddb0"; wrapMode: Text.WordWrap
@@ -390,7 +474,16 @@ Rectangle {
                               + (kb.progress.canCompare20 ? "  · previously "
                                  + kb.progress.previous20.reviewWarnings + "/"
                                  + kb.progress.previous20.pricedReviewed + " ("
-                                 + kb.fmt(kb.progress.previous20.reviewPercent) + ")" : "")
+                                 + kb.fmt(kb.progress.previous20.reviewPercent) + ")" : "") + " ⓘ"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainSummary("Model warnings — last 20 hands",
+                                kb.progress.last20,
+                                "Warnings / graded paid calls or folds. These are NOT proven mistakes. "
+                                + "Previous window: " + kb.progress.previous20.reviewWarnings
+                                + "/" + kb.progress.previous20.pricedReviewed
+                                + ". Both windows contain at most 20 tracked hands.")
+                        }
                     }
                     Text {
                         width: parent.width; color: "#aebfd7"; wrapMode: Text.WordWrap
@@ -407,7 +500,14 @@ Rectangle {
                               + kb.progress.all.preflopObservedHands + ")"
                               + " · PFR " + kb.fmt(kb.progress.all.pfrPercent)
                               + " (" + kb.progress.all.pfrHands + "/"
-                              + kb.progress.all.preflopObservedHands + ")"
+                              + kb.progress.all.preflopObservedHands + ") ⓘ"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: kb.explainSummary("VPIP and PFR — full history",
+                                kb.progress.all,
+                                "Both are proportions of tracked hands with a preflop action, "
+                                + "not all hands dealt or all opportunities.")
+                        }
                     }
                     Text {
                         width: parent.width; color: "#aebfd7"; wrapMode: Text.WordWrap
@@ -426,7 +526,12 @@ Rectangle {
                             font.pixelSize: 11
                             text: modelData.position + ": VPIP " + kb.fmt(modelData.vpipPercent)
                                   + " · PFR " + kb.fmt(modelData.pfrPercent)
-                                  + " · " + modelData.preflopObservedHands + " observed hands"
+                                  + " · " + modelData.preflopObservedHands + " observed hands ⓘ"
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: kb.explainSummary("Preflop position: " + modelData.position,
+                                    modelData, "BTN = dealer, SB/BB = blinds, Other = remaining seats.")
+                            }
                         }
                     }
                     Text { width: parent.width; color: "#aebfd7"; wrapMode: Text.WordWrap
@@ -443,7 +548,14 @@ Rectangle {
                             Text {
                                 color: "white"; font.bold: true
                                 text: modelData.street + " · " + modelData.last50.decisions
-                                      + " decisions in last 50 hands"
+                                      + " decisions in last 50 hands ⓘ"
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: kb.explainSummary(modelData.street + " — last 50 hands",
+                                        modelData.last50,
+                                        "Only decisions on this street are counted. "
+                                        + "Previous 50 decisions: " + modelData.previous50.decisions)
+                                }
                             }
                             Text {
                                 width: parent.width; color: "#d7e3f6"
@@ -451,7 +563,14 @@ Rectangle {
                                 text: "Free-fold errors " + modelData.last50.clearMistakes
                                       + "/" + modelData.last50.freeOpportunities
                                       + " · model warnings " + modelData.last50.reviewWarnings
-                                      + "/" + modelData.last50.pricedReviewed
+                                      + "/" + modelData.last50.pricedReviewed + " ⓘ"
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: kb.explainSummary(modelData.street + " — last 50 hands",
+                                        modelData.last50,
+                                        "This row contains counts, not percentages; divide each "
+                                        + "numerator by its adjacent denominator.")
+                                }
                             }
                             Text {
                                 visible: kb.progress.canCompare50
@@ -460,7 +579,13 @@ Rectangle {
                                 text: "Prior 50: errors " + modelData.previous50.clearMistakes
                                       + "/" + modelData.previous50.freeOpportunities
                                       + " · warnings " + modelData.previous50.reviewWarnings
-                                      + "/" + modelData.previous50.pricedReviewed
+                                      + "/" + modelData.previous50.pricedReviewed + " ⓘ"
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: kb.explainSummary(modelData.street + " — preceding 50 hands",
+                                        modelData.previous50,
+                                        "Previous 50 tracked hands, grouped by street.")
+                                }
                             }
                         }
                     }
@@ -503,6 +628,15 @@ Rectangle {
                                         color: "#c7d5eb"; font.pixelSize: 10
                                         text: String(modelData.to)
                                     }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: kb.explainSummary(
+                                            "History bucket " + modelData.from + "–" + modelData.to,
+                                            modelData, "Each bar represents up to ten tracked hands. "
+                                            + "Gold = model warnings / graded paid decisions. "
+                                            + "Red = free-check folds / free-check opportunities. "
+                                            + "Height = rate as a percentage of 55 display pixels.")
+                                    }
                                 }
                             }
                         }
@@ -518,7 +652,37 @@ Rectangle {
                             text: "Session " + modelData.id + ": " + modelData.hands
                                   + " hands · " + modelData.clearMistakes + " free-fold mistakes"
                                   + " · " + modelData.reviewWarnings + "/"
-                                  + modelData.pricedReviewed + " model warnings"
+                                  + modelData.pricedReviewed + " model warnings ⓘ"
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: kb.explainSummary("Practice session " + modelData.id,
+                                    modelData,
+                                    "From " + modelData.fromDate + " to " + modelData.toDate)
+                            }
+                        }
+                    }
+                    Rectangle { width: parent.width; height: 1; color: "#556781" }
+                    Row {
+                        spacing: 8
+                        Text {
+                            text: "Recorded decisions — tap to inspect/replay"
+                            color: "#f0d891"; font.bold: true; font.pixelSize: 12
+                        }
+                        Button { text: "Refresh"; onClicked: kb.refreshHistory() }
+                    }
+                    Repeater {
+                        model: kb.recentDecisions || []
+                        delegate: Text {
+                            required property var modelData
+                            width: dashboard.width; color: "#d7e3f6"; wrapMode: Text.WordWrap
+                            font.pixelSize: 11
+                            text: "Hand " + modelData.hand + " · " + modelData.phase
+                                  + " · " + modelData.action
+                                  + " · " + modelData.rating + " ⓘ"
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: kb.explainDecision(modelData)
+                            }
                         }
                     }
                     Rectangle { width: parent.width; height: 1; color: "#556781" }
