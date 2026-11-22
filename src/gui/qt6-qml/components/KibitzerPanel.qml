@@ -744,7 +744,7 @@ Rectangle {
                     Text {
                         width: parent.width; color: "#aebfd7"; wrapMode: Text.WordWrap
                         font.pixelSize: 11
-                        text: "Review flags are based on random opponent ranges, not proof of bad play. "
+                        text: "Review flags use random or user-assigned ranges, not proof of bad play. "
                               + "Small sample differences can be ordinary noise."
                     }
                     Rectangle { width: parent.width; height: 1; color: "#556781" }
