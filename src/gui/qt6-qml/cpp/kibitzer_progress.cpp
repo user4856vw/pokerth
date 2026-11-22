@@ -308,6 +308,7 @@ void GameHandler::rebuildKibitzerProgress() {
     // before dividing by the number of eligible dealt hands.
     std::vector<KibitzerTournamentStats::HandResult> chipHands;
     std::vector<KibitzerTournamentStats::HandResult> deepHands, middleHands, shortHands;
+    QVariantList recentSettlements;
     chipHands.reserve(static_cast<std::size_t>(m_kibitzerHistory.size()));
     for (const QVariant &v : m_kibitzerHistory) {
         const QVariantMap hand = v.toMap();
@@ -320,6 +321,11 @@ void GameHandler::rebuildKibitzerProgress() {
         item.bigBlind = settled.value("bigBlind").toInt();
         if (!KibitzerTournamentStats::admissible(item)) continue;
         chipHands.push_back(item);
+        QVariantMap line = settled;
+        line["hand"] = hand.value("hand");
+        line["session"] = hand.value("session");
+        recentSettlements.prepend(line);
+        if (recentSettlements.size() > 12) recentSettlements.removeLast();
         const double depth = double(item.startingChips) / item.bigBlind;
         if (depth > 40.0) deepHands.push_back(item);
         else if (depth >= 15.0) middleHands.push_back(item);
@@ -359,6 +365,7 @@ void GameHandler::rebuildKibitzerProgress() {
     tournament["shortHands"] = static_cast<int>(shortHands.size());
     tournament["shortBbPer100"] = KibitzerTournamentStats::summarize(shortHands,{}).bbPer100;
     tournament["recentFinishes"] = recentFinishes;
+    tournament["recentSettlements"] = recentSettlements;
     tournament["historyLimit"] = kMaxTournaments;
     tournament["active"] = m_kibitzerTournamentActive;
     tournament["currentHands"] = m_kibitzerTournamentHandCount;
