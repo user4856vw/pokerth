@@ -1116,6 +1116,64 @@ QVariantMap GameHandler::kibitzerReplayDecision(const QVariantMap &decision) con
     out["matched"] = estimate.samples == originalSamples
         && std::abs(estimate.equity - originalEquity) < 1e-12;
     out["equityStdError"] = estimate.standardError;
+
+    // The user-defined hypotheses are frozen inside the historical snapshot.
+    // Subsequent edits to the live ranges must NOT change a historical replay.
+    const QVariantMap scenario = snapshot.value("rangeScenario").toMap();
+    if (!scenario.isEmpty()) {
+        const QVariantList rows = scenario.value("ranges").toList();
+        const int rangeRequested = scenario.value("samplesRequested").toInt();
+        const quint64 rangeSeed = scenario.value("seed").toULongLong();
+        if (scenario.value("modelVersion").toString() !=
+                 QLatin1String("manual-ranges-joint-rejection-v1")
+            || rows.size() != opponents || rangeRequested < 1
+            || rangeRequested > 10000 || rangeSeed == 0 || rangeSeed > 0xFFFFFFFFULL) {
+            out["rangeStatus"] = QStringLiteral("invalid");
+            out["rangeMessage"] = QStringLiteral("Saved range scenario is malformed.");
+            return out;
+        }
+        std::vector<HoleCardsRange> owned;
+        std::vector<const HoleCardsRange*> assigned;
+        owned.reserve(static_cast<std::size_t>(opponents));
+        assigned.reserve(static_cast<std::size_t>(opponents));
+        bool anyCustom = false;
+        for (const QVariant &v : rows) {
+            const QString notation = v.toMap().value("notation").toString().trimmed();
+            if (notation.size() > 384) {
+                out["rangeStatus"] = QStringLiteral("invalid");
+                out["rangeMessage"] = QStringLiteral("Saved range is too long.");
+                return out;
+            }
+            if (notation.isEmpty()) {
+                assigned.push_back(nullptr);
+            } else {
+                owned.emplace_back();
+                if (!owned.back().add(notation.toStdString()) || owned.back().empty()) {
+                    out["rangeStatus"] = QStringLiteral("invalid");
+                    out["rangeMessage"] = QStringLiteral("Saved range notation is invalid.");
+                    return out;
+                }
+                assigned.push_back(&owned.back());
+                anyCustom = true;
+            }
+        }
+        if (!anyCustom) {
+            out["rangeStatus"] = QStringLiteral("invalid");
+            out["rangeMessage"] = QStringLiteral("Saved range scenario has no restrictions.");
+            return out;
+        }
+        const auto replay = EquityCalculator::equity(
+            holeCodes, boardCodes, static_cast<int>(board.size()), assigned,
+            rangeRequested, static_cast<std::uint32_t>(rangeSeed), true);
+        out["rangeStatus"] = replay.samples >= 1000
+            ? QStringLiteral("ready") : QStringLiteral("insufficient");
+        out["rangeEquity"] = replay.equity;
+        out["rangeOriginalEquity"] = scenario.value("equity").toDouble();
+        out["rangeSamples"] = replay.samples;
+        out["rangeMatched"] = replay.samples == scenario.value("samples").toInt()
+            && std::abs(replay.equity - scenario.value("equity").toDouble()) < 1e-12;
+        out["rangeStdError"] = replay.standardError;
+    }
     return out;
 }
 
