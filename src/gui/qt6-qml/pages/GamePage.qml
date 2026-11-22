@@ -134,6 +134,20 @@ Rectangle {
             tableZone.showInfo = false
     }
 
+    // Kibitzer is intentionally hidden by default. Its recorder lives in the
+    // GameHandler, so hiding the panel never suppresses decision tracking.
+    property bool kibitzerOpen: false
+    function toggleKibitzer() {
+        if (!GameTable || !GameTable.isLocalGameRunning() || gamePage.spectating)
+            return
+        kibitzerOpen = !kibitzerOpen
+        if (kibitzerOpen) {
+            tableZone.showInfo = false
+            tableZone.showChat = false
+            tableZone.showReactions = false
+        }
+    }
+
     // ── Emoji reactions (a port from the web client) ─────────────────────────
     // Sending goes through the game chat with the web client convention
     // "/emoji 🎉"; received reactions are intercepted by GameHandler::appendChat and
@@ -270,6 +284,14 @@ Rectangle {
                      + "mit derselben Sequenz) – Aktion NICHT ausgeführt.")
     }
 
+    Shortcut {
+        sequence: "K"
+        context: Qt.WindowShortcut
+        enabled: gamePage.visible && !gamePage.spectating
+                 && GameTable && GameTable.isLocalGameRunning()
+                 && !kibitzerPanel.editingRestore
+        onActivated: gamePage.toggleKibitzer()
+    }
     Shortcut {
         sequence: "Alt+L"
         context: Qt.ApplicationShortcut
@@ -1583,15 +1605,37 @@ Rectangle {
                 }
             }
 
-            // A teaching adviser for local play against computer opponents.
-            // It never sees hidden opponent cards and never sends game actions.
+            // A compact, permanent entry point that does not hide the hero's cards.
+            Button {
+                id: kibitzerToggle
+                z: 225
+                visible: GameTable && GameTable.isLocalGameRunning() && !tableZone.spectating
+                width: 44
+                height: 38
+                text: "K"
+                font.bold: true
+                anchors.top: parent.top
+                anchors.topMargin: 8
+                anchors.right: infoToggle.left
+                anchors.rightMargin: 8
+                checkable: true
+                checked: gamePage.kibitzerOpen
+                onClicked: gamePage.toggleKibitzer()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Kibitzer (K)")
+            }
+
+            // The adviser is only visible on request. History is always recorded
+            // by the C++ game handler, independently of this QML component.
             KibitzerPanel {
                 id: kibitzerPanel
                 z: 220
                 width: Math.min(parent.width - 16, 520)
                 anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 8
+                anchors.top: kibitzerToggle.bottom
+                anchors.topMargin: 8
+                openRequested: gamePage.kibitzerOpen
+                onCloseRequested: gamePage.kibitzerOpen = false
             }
 
             // ── The info panel overlay (history/odds/hand) ────────────────────
