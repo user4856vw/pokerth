@@ -70,11 +70,14 @@ public:
 	 * opponentRanges: one entry per opponent; nullptr = any hand.
 	 * samples: desired number of simulation runs.
 	 * seed: nonzero => reproducible independent RNG stream; zero => existing thread RNG.
+	 * jointRejection: sample every player independently from their range,
+	 *   rejecting the ENTIRE deal on any collision. Only for user-assigned
+	 *   multi-player ranges; avoids seating-order selection bias.
 	 */
 	static Result equity(const int* holeCards,
 						 const int* boardCards, int boardSize,
 						 const std::vector<const HoleCardsRange*>& opponentRanges,
-						 int samples, std::uint32_t seed = 0);
+						 int samples, std::uint32_t seed = 0, bool jointRejection = false);
 
 	// Convenient case: all opponents with the same range (or nullptr).
 	static Result equity(const int* holeCards,
