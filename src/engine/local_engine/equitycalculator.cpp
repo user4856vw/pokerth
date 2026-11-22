@@ -37,6 +37,8 @@
 
 #include <random>
 #include <utility>
+#include <cmath>
+#include <algorithm>
 
 namespace
 {
@@ -87,9 +89,9 @@ void buildCombos(const HoleCardsRange* range, unsigned long long knownMask, std:
 EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		const int* boardCards, int boardSize,
 		const std::vector<const HoleCardsRange*>& opponentRanges,
-		int samples)
+		int samples, std::uint32_t seed)
 {
-	Result result = { 0.0, 0.0, 0.0, 0 };
+	Result result = { 0.0, 0.0, 0.0, 0, 0.0 };
 
 	const int opponents = static_cast<int>(opponentRanges.size());
 	if(opponents < 1 || samples < 1 || boardSize < 0 || boardSize > 5) return result;
@@ -119,7 +121,10 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		if(combos[o].empty()) return result;
 	}
 
-	std::mt19937& rng = simulationRng();
+	// A nonzero seed is an isolated, replayable stream for local training.
+	// Unseeded engine callers keep their existing thread-local generator.
+	std::mt19937 seededRng(seed);
+	std::mt19937& rng = seed != 0 ? seededRng : simulationRng();
 
 	const int missingBoard = 5 - boardSize;
 	int myCards[7];
@@ -128,6 +133,7 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 
 	std::vector<int> opponentCards(2 * opponents);
 	double equitySum = 0.0;
+	double equitySumSquares = 0.0;
 	int wins = 0, ties = 0, played = 0;
 
 	for(int s = 0; s < samples; ++s) {
@@ -189,9 +195,12 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		if(equalBest == 0) {
 			++wins;
 			equitySum += 1.0;
+			equitySumSquares += 1.0;
 		} else {
 			++ties;
-			equitySum += 1.0 / (equalBest + 1);
+			const double share = 1.0 / (equalBest + 1);
+			equitySum += share;
+			equitySumSquares += share * share;
 		}
 	}
 
@@ -200,6 +209,11 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		result.win = static_cast<double>(wins) / played;
 		result.tie = static_cast<double>(ties) / played;
 		result.samples = played;
+		if (played > 1) {
+			const double populationSecondMoment = equitySumSquares / played;
+			result.standardError = std::sqrt(std::max(0.0,
+				(populationSecondMoment - result.equity * result.equity) / (played - 1)));
+		}
 	}
 
 	return result;
@@ -208,8 +222,8 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		const int* boardCards, int boardSize,
 		int opponents, const HoleCardsRange* range,
-		int samples)
+		int samples, std::uint32_t seed)
 {
 	std::vector<const HoleCardsRange*> ranges(opponents > 0 ? opponents : 0, range);
-	return equity(holeCards, boardCards, boardSize, ranges, samples);
+	return equity(holeCards, boardCards, boardSize, ranges, samples, seed);
 }
