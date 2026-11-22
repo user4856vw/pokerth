@@ -1614,6 +1614,20 @@ Rectangle {
                 height: 38
                 text: "K"
                 font.bold: true
+                contentItem: Text {
+                    text: kibitzerToggle.text
+                    font: kibitzerToggle.font
+                    color: "#f6f9ff"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 7
+                    color: kibitzerToggle.down ? "#55749a"
+                          : kibitzerToggle.highlighted ? "#456d58" : "#304961"
+                    border.color: kibitzerToggle.highlighted ? "#a2dbb3" : "#93a9c7"
+                    border.width: 1
+                }
                 anchors.top: parent.top
                 anchors.topMargin: 8
                 anchors.right: infoToggle.left
