@@ -79,6 +79,7 @@
         <file>components/GameRoundIconButton.qml</file>
         <file>components/ReactionPicker.qml</file>
         <file>components/GameActionBar.qml</file>
+        <file>components/KibitzerPanel.qml</file>
         <file>components/LobbyStatsBar.qml</file>
         <file>components/ForumBadge.qml</file>
         <file>config/qmldir</file>
