@@ -1439,11 +1439,10 @@ void GameHandler::settleKibitzerTournamentHand()
     if (!seats) return;
 
     int heroCash = -1;
-    int remaining = 0, busts = 0;
+    int remaining = 0;
     for (const auto &p : *seats) {
         if (p->getMyID() == 0) heroCash = p->getMyCash();
         if (p->getMyCash() > 0) ++remaining;
-        else ++busts;
     }
     const int bigBlind = 2 * hand->getSmallBlind();
     if (heroCash < 0 || bigBlind <= 0) return;
