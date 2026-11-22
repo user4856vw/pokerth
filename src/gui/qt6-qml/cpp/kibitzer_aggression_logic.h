@@ -120,8 +120,10 @@ inline Assessment assess(const Input &in) {
     // but without fold probabilities it is NEVER an automatic bet instruction.
     out.flushDraw = hasFlushDraw(in);
     out.openStraightDraw = hasOpenStraightDraw(in);
+    // Facing a bet, a semi-bluff raise requires a credible fold-response
+    // model. For Stage A, only flag opportunities where checking is free.
     if (in.boardSize >= 3 && in.boardSize <= 4 && in.opponents <= 2 &&
-        (out.flushDraw || out.openStraightDraw) &&
+        in.price == 0 && (out.flushDraw || out.openStraightDraw) &&
         in.equity >= 0.22 && in.equity < 0.70) {
         out.signal = Signal::SemiBluffCandidate;
     }
