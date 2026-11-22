@@ -13,6 +13,7 @@ Rectangle {
     property bool expanded: false
     property bool openRequested: false
     readonly property bool editingRestore: restoreArea.activeFocus
+    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible
     signal closeRequested()
     property string explanationTitle: ""
     property string explanationBody: ""
