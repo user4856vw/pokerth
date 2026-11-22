@@ -32,6 +32,11 @@ int main() {
     x=summarize({},{{9,3,true},{8,0,true},{1,1,true}});
     assert(x.completedTournaments==1 && x.wins==0);
     near(x.averagePlace,3);
+    // Previous hand survivors matter, not original tournament entrants.
+    assert(eliminatedPlace(3)==4);
+    assert(!sharedElimination(4,3));  // ordinary elimination (possibly after prior bust-outs)
+    assert(sharedElimination(4,2));   // two players gone in the SAME hand
+    assert(!sharedElimination(2,1));
     assert(!admissible({-1,0,20,true}));
     return 0;
 }
