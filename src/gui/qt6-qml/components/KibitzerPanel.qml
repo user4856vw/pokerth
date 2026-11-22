@@ -13,7 +13,61 @@ Rectangle {
     property bool expanded: false
     property bool openRequested: false
     readonly property bool editingRestore: restoreArea.activeFocus
-    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible
+    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible
+    property var rangePlayers: []
+    property string rangeFeedback: ""
+    readonly property bool customRangeActive: advice.rangeStatus === "ready"
+    function refreshOpponentRanges() {
+        rangePlayers = GameTable ? GameTable.kibitzerOpponentRanges() : []
+    }
+    function applyRange(seat, notation) {
+        if (!GameTable) return
+        var r = GameTable.kibitzerSetOpponentRange(seat, notation)
+        rangeFeedback = (r.ok ? "✓ " : "⚠ ") + (r.message || "")
+        if (r.ok) {
+            refreshOpponentRanges()
+            if (myTurnNow) debounce.restart()
+        }
+    }
+    function describeRangeScenario() {
+        var a = advice
+        if (a.status !== "ready") {
+            explain("Range sensitivity", "No live equity calculation is available.")
+            return
+        }
+        var body = "Baseline against uniformly random hands: "
+            + fmt(100*a.equity) + ".\\n"
+        if (a.rangeStatus === "baseline") {
+            body += "No active opponent has a manual range. Use RANGES to "
+                + "set a hypothesis for each seat; leave blank for random.\\n"
+        } else if (a.rangeStatus === "ready") {
+            var b = a.rangeScenario
+            body += "Conditioned equity under your assumptions: "
+                 + fmt(100*a.rangeEquity) + "; change from random: "
+                 + (a.rangeDelta >= 0 ? "+" : "") + (100*a.rangeDelta).toFixed(1)
+                 + " percentage points.\\n"
+            body += "Monte Carlo samples: " + b.samples + "/" + b.samplesRequested
+                 + "; seed: " + b.seed
+                 + "; sampling standard error: "
+                 + (100*a.rangeStdError).toFixed(2) + " percentage points.\\n"
+        } else {
+            body += "Range scenario unavailable: " + (a.rangeMessage || "insufficient compatible deals") + "\\n"
+        }
+        var rows = a.activeRanges || []
+        body += "\\nActive opponents and assumptions:\\n"
+        for (var i = 0; i < rows.length; ++i)
+            body += rows[i].name + " (seat " + rows[i].seatId + "): "
+                  + (rows[i].notation || "ANY / random") + "\\n"
+        body += "\\nRanges cover starting-hand TYPES, not fixed cards. "
+            + "For instance, AA represents six combinations before blockers; AKs four. "
+            + "Opponent hands are sampled independently within each range, "
+            + "then the entire deal is rejected on overlap. Future board cards "
+            + "are drawn from the remaining deck. No hidden bot cards are read. "
+            + "The spread between the two estimates is model sensitivity, NOT "
+            + "a confidence interval. Opponent reaction to betting, fold equity, "
+            + "future bets, side pots, and tournament ICM remain unmodeled."
+        explain("Range sensitivity — inputs and methodology", body)
+    }
     signal closeRequested()
     property string explanationTitle: ""
     property string explanationBody: ""
@@ -31,7 +85,7 @@ Rectangle {
     readonly property bool hasReview: report && report.entries && report.entries.length > 0
     readonly property bool reviewMode: forceReview || !myTurnNow
     implicitHeight: (expanded && reviewMode) ? Math.min(288, 95 + reviewLines.implicitHeight)
-                    : (expanded ? 118 : 76)
+                    : (expanded ? 142 : (myTurnNow && advice.rangeStatus !== "baseline" ? 100 : 76))
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
     function explain(title, body, decision) {
@@ -96,6 +150,10 @@ Rectangle {
         body += "Estimated Monte Carlo standard error: " + kb.fmt(100 * se)
              + " percentage points; approximate 95% sampling margin ±"
              + kb.fmt(100 * 1.96 * se) + " points. This ignores opponent-range uncertainty.\n"
+        if (a.rangeStatus !== "baseline")
+            body += "\\nA separate estimate uses your manual opponent ranges. Tap its "
+                 + "value to inspect each range and the sampler. "
+                 + "The baseline remains available for comparison.\\n"
         body += "Showdown equity is not full expected value. Future betting, fold equity, "
              + "side pots and tournament ICM are excluded. Recommendations use a "
              + "heuristic 12-percentage-point cushion, not a confidence test."
@@ -166,7 +224,10 @@ Rectangle {
     }
     onVisibleChanged: {
         if (visible && myTurnNow) debounce.restart()
-        if (visible) kb.refreshHistory()
+        if (visible) {
+            kb.refreshHistory()
+            kb.refreshOpponentRanges()
+        }
     }
     Connections {
         target: GameTable
@@ -175,6 +236,10 @@ Rectangle {
         function onCallAmountChanged() { if (kb.myTurnNow) debounce.restart() }
         function onTotalPotChanged() { if (kb.myTurnNow) debounce.restart() }
         function onKibitzerProgressChanged() { kb.refreshHistory() }
+        function onKibitzerRangesChanged() {
+            kb.refreshOpponentRanges()
+            if (kb.visible && kb.myTurnNow) debounce.restart()
+        }
     }
 
     Column {
