@@ -302,6 +302,73 @@ void GameHandler::rebuildKibitzerProgress() {
         end=start;
     }
     result["sessions"] = sessions;
+
+    // BB accounting uses settled-hand evidence, NOT the decision-only filter.
+    // A BB is fixed for this individual hand; sum normalized differences
+    // before dividing by the number of eligible dealt hands.
+    std::vector<KibitzerTournamentStats::HandResult> chipHands;
+    std::vector<KibitzerTournamentStats::HandResult> deepHands, middleHands, shortHands;
+    chipHands.reserve(static_cast<std::size_t>(m_kibitzerHistory.size()));
+    for (const QVariant &v : m_kibitzerHistory) {
+        const QVariantMap hand = v.toMap();
+        const QVariantMap settled = hand.value("settlement").toMap();
+        if (!settled.value("observed").toBool()) continue;
+        KibitzerTournamentStats::HandResult item;
+        item.valid = true;
+        item.startingChips = settled.value("startingChips").toInt();
+        item.endingChips = settled.value("endingChips").toInt();
+        item.bigBlind = settled.value("bigBlind").toInt();
+        if (!KibitzerTournamentStats::admissible(item)) continue;
+        chipHands.push_back(item);
+        const double depth = double(item.startingChips) / item.bigBlind;
+        if (depth > 40.0) deepHands.push_back(item);
+        else if (depth >= 15.0) middleHands.push_back(item);
+        else shortHands.push_back(item);
+    }
+    std::vector<KibitzerTournamentStats::Finish> finishRows;
+    finishRows.reserve(static_cast<std::size_t>(m_kibitzerTournaments.size()));
+    QVariantList recentFinishes;
+    for (const QVariant &v : m_kibitzerTournaments) {
+        const QVariantMap row = v.toMap();
+        KibitzerTournamentStats::Finish f;
+        f.entrants = row.value("entrants").toInt();
+        f.place = row.value("place").toInt();
+        f.completed = row.value("completed").toBool();
+        finishRows.push_back(f);
+    }
+    for (int i = m_kibitzerTournaments.size() - 1;
+         i >= 0 && recentFinishes.size() < 12; --i)
+        recentFinishes.append(m_kibitzerTournaments.at(i));
+
+    const auto perf = KibitzerTournamentStats::summarize(chipHands,finishRows);
+    QVariantMap tournament;
+    tournament["bbHands"] = perf.hands;
+    tournament["netChips"] = static_cast<qlonglong>(perf.netChips);
+    tournament["bbWon"] = perf.totalBb;
+    tournament["bbPer100"] = perf.bbPer100;
+    tournament["completed"] = perf.completedTournaments;
+    tournament["wins"] = perf.wins;
+    tournament["winPercent"] = KibitzerTrainingStats::percent(perf.wins,perf.completedTournaments);
+    tournament["averagePlace"] = perf.averagePlace;
+    tournament["averageNormalizedPlace"] = perf.averageNormalizedPlace;
+    tournament["abandoned"] = perf.abandonedTournaments;
+    tournament["deepHands"] = static_cast<int>(deepHands.size());
+    tournament["deepBbPer100"] = KibitzerTournamentStats::summarize(deepHands,{}).bbPer100;
+    tournament["mediumHands"] = static_cast<int>(middleHands.size());
+    tournament["mediumBbPer100"] = KibitzerTournamentStats::summarize(middleHands,{}).bbPer100;
+    tournament["shortHands"] = static_cast<int>(shortHands.size());
+    tournament["shortBbPer100"] = KibitzerTournamentStats::summarize(shortHands,{}).bbPer100;
+    tournament["recentFinishes"] = recentFinishes;
+    tournament["historyLimit"] = kMaxTournaments;
+    tournament["active"] = m_kibitzerTournamentActive;
+    tournament["currentHands"] = m_kibitzerTournamentHandCount;
+    tournament["currentEntrants"] = m_kibitzerTournamentEntrants;
+    tournament["currentStack"] = m_kibitzerTournamentLastCash;
+    tournament["currentBbWon"] = m_kibitzerTournamentBbWon;
+    tournament["currentBbPer100"] = m_kibitzerTournamentHandCount > 0
+        ? 100.0 * m_kibitzerTournamentBbWon / m_kibitzerTournamentHandCount : 0.0;
+    result["tournament"] = tournament;
+
     result["disclaimer"] = QStringLiteral(
         "Tracked hands must contain a recorded human decision. Free-check folds are provable errors; "
         "review warnings use random or user-assigned opponent ranges and are NOT confirmed mistakes. "
