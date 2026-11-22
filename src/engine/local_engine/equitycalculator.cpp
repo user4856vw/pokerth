@@ -89,7 +89,7 @@ void buildCombos(const HoleCardsRange* range, unsigned long long knownMask, std:
 EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		const int* boardCards, int boardSize,
 		const std::vector<const HoleCardsRange*>& opponentRanges,
-		int samples, std::uint32_t seed)
+		int samples, std::uint32_t seed, bool jointRejection)
 {
 	Result result = { 0.0, 0.0, 0.0, 0, 0.0 };
 
@@ -117,7 +117,7 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		buildCombos(opponentRanges[o], knownMask, combos[o]);
 		// A range that is empty after subtracting the known cards cannot be
 		// simulated -- in that case arbitrary hands are better than no result at all.
-		if(combos[o].empty()) buildCombos(0, knownMask, combos[o]);
+		if(combos[o].empty() && !jointRejection) buildCombos(0, knownMask, combos[o]);
 		if(combos[o].empty()) return result;
 	}
 
@@ -136,7 +136,13 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 	double equitySumSquares = 0.0;
 	int wins = 0, ties = 0, played = 0;
 
-	for(int s = 0; s < samples; ++s) {
+	// In joint-rejection mode, each independently drawn opponent combo is
+	// accepted only if the entire multi-player deal has no collisions.
+	// Resampling a later opponent until compatible would overweight earlier
+	// hands that block many possibilities from that opponent's narrow range.
+	// Bound the work when assigned ranges conflict almost completely.
+	const int maxAttempts = jointRejection ? samples * 120 : samples;
+	for(int s = 0; s < maxAttempts && (!jointRejection || played < samples); ++s) {
 		unsigned long long usedMask = knownMask;
 		bool usable = true;
 
@@ -144,9 +150,10 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		for(int o = 0; o < opponents && usable; ++o) {
 			const std::vector<CardPair>& list = combos[o];
 			bool placed = false;
-			// Collisions with cards already dealt are drawn again. The cap prevents
-			// endless loops when hardly anything is free.
-			for(int attempt = 0; attempt < 200 && !placed; ++attempt) {
+			// For manual ranges, try exactly once per opponent, then reject
+			// the whole sample on a collision (not merely the later player).
+			const int maxRejections = jointRejection ? 1 : 200;
+			for(int attempt = 0; attempt < maxRejections && !placed; ++attempt) {
 				const CardPair& pick = list[nextBelow(rng, static_cast<unsigned>(list.size()))];
 				const unsigned long long bits = (1ULL << pick.first) | (1ULL << pick.second);
 				if(usedMask & bits) continue;
@@ -225,5 +232,5 @@ EquityCalculator::Result EquityCalculator::equity(const int* holeCards,
 		int samples, std::uint32_t seed)
 {
 	std::vector<const HoleCardsRange*> ranges(opponents > 0 ? opponents : 0, range);
-	return equity(holeCards, boardCards, boardSize, ranges, samples, seed);
+	return equity(holeCards, boardCards, boardSize, ranges, samples, seed, false);
 }
