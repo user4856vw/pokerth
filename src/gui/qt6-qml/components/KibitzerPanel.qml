@@ -847,8 +847,9 @@ Rectangle {
                         color: "#aebfd7"
                         wrapMode: Text.WordWrap
                         font.pixelSize: 11
-                        text: "Only hands with your recorded decisions count. "
-                              + "All rates show their denominators; no artificial 'skill score'."
+                        text: "Decision-based training rates use hands with recorded actions. "
+                              + "BB/100 uses all settled hands, including blind-only walks. "
+                              + "Each rate shows its own denominator."
                     }
                     Rectangle { width: parent.width; height: 1; color: "#556781" }
                     Text {
