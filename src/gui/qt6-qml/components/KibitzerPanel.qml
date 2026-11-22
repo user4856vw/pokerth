@@ -5,6 +5,34 @@ import QtQuick.Layouts
 // Local-only training adviser and review. Does not send poker actions.
 Rectangle {
     id: kb
+    // Force readable contrast regardless of the platform's Qt Controls style:
+    // the stock Button control rendered black labels over near-black surfaces
+    // under some Android themes.
+    component TrainerButton: Button {
+        id: trainerButton
+        font.pixelSize: 12
+        font.bold: true
+        padding: 8
+        contentItem: Text {
+            text: trainerButton.text
+            color: trainerButton.enabled ? "#f6f9ff" : "#a6b7ca"
+            font: trainerButton.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            implicitWidth: 68
+            implicitHeight: 34
+            radius: 6
+            border.width: 1
+            border.color: trainerButton.activeFocus ? "#e2d089" : "#8299b4"
+            color: !trainerButton.enabled ? "#293545"
+                   : trainerButton.down ? "#55749a"
+                   : trainerButton.hovered ? "#425f7e"
+                   : "#304961"
+        }
+    }
     color: "#eb19212d"
     radius: 10
     border.width: 1
@@ -17,6 +45,8 @@ Rectangle {
     property var rangePlayers: []
     property string rangeFeedback: ""
     readonly property bool customRangeActive: advice.rangeStatus === "ready"
+    readonly property bool hasAggressionSignal: advice.status === "ready" && advice.aggression
+                  && advice.aggression.status !== "none"
     function refreshOpponentRanges() {
         rangePlayers = GameTable ? GameTable.kibitzerOpponentRanges : []
     }
@@ -90,7 +120,9 @@ Rectangle {
     readonly property bool hasReview: report && report.entries && report.entries.length > 0
     readonly property bool reviewMode: forceReview || !myTurnNow
     implicitHeight: (expanded && reviewMode) ? Math.min(288, 95 + reviewLines.implicitHeight)
-                    : (expanded ? 142 : (myTurnNow && advice.rangeStatus !== "baseline" ? 100 : 76))
+                    : (expanded ? 146 + (hasAggressionSignal ? 25 : 0)
+                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 100 : 76)
+                        + (hasAggressionSignal ? 25 : 0))
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
     function explain(title, body, decision) {
@@ -166,6 +198,29 @@ Rectangle {
              + "sampling margin, conditional on your assumptions being right. "
              + "That margin does NOT measure model or range-selection uncertainty."
         kb.explain("Equity — method and uncertainty", body)
+    }
+    function explainAggression() {
+        var a = kb.advice
+        if (a.status !== "ready" || !a.aggression || a.aggression.status === "none")
+            return
+        var g = a.aggression
+        var body = "Stage A — a candidate to evaluate, NOT an instruction to bet.\\n\\n"
+                 + g.reason + "\\n\\n"
+                 + "Your hole cards: " + a.hero + "; board: " + kb.cards(a.boardCodes)
+                 + "; opponents still in hand: " + a.opponents + ".\\n"
+                 + "Conditional equity: " + kb.fmt(100*g.equity)
+                 + "; cautious comparison estimate: " + kb.fmt(100*g.lowerEquity) + ".\\n"
+                 + "Assumption: " + g.conditionalOn + ".\\n"
+                 + "Pot: " + g.pot + " chips; call price: " + g.price
+                 + "; legal raise control spans " + g.minRaise + "–"
+                 + g.maxRaise + " chips. These are legal limits, NOT suggested sizes.\\n"
+                 + "Passive comparison: " + a.passiveHeadline + ".\\n"
+                 + "Why this is not an EV comparison: we have NOT estimated which "
+                 + "weaker hands call, which better hands fold, how often they reraise, "
+                 + "or what happens on later streets. A premium preflop hand or a "
+                 + "strong draw is only a screening criterion.\\n\\n"
+                 + g.explanation
+        kb.explain("Aggression signal — assumptions and limitations", body)
     }
     function explainThreshold() {
         var a = kb.advice
@@ -393,6 +448,16 @@ Rectangle {
             }
         }
         Text {
+            visible: !kb.reviewMode && kb.hasAggressionSignal
+            width: parent.width
+            color: "#b9f0d1"
+            font.pixelSize: 11
+            font.bold: true
+            elide: Text.ElideRight
+            text: "Why consider aggression?  ⓘ  ·  " + kb.advice.passiveHeadline
+            MouseArea { anchors.fill: parent; onClicked: kb.explainAggression() }
+        }
+        Text {
             visible: kb.expanded && !kb.reviewMode && kb.advice.status === "ready"
             width: parent.width
             wrapMode: Text.WordWrap
@@ -470,7 +535,7 @@ Rectangle {
                     text: "YOUR OPPONENT-RANGE ASSUMPTIONS"
                     font.bold: true; font.pixelSize: 14; wrapMode: Text.WordWrap
                 }
-                Button { text: "Close"; onClicked: rangePopup.close() }
+                TrainerButton { text: "Close"; onClicked: rangePopup.close() }
             }
             Text {
                 Layout.fillWidth: true
@@ -511,7 +576,7 @@ Rectangle {
                                     font.pixelSize: 12
                                     onAccepted: kb.applyRange(opponentRow.modelData.seatId, text)
                                 }
-                                Button {
+                                TrainerButton {
                                     width: 86
                                     text: "Apply"
                                     onClicked: kb.applyRange(opponentRow.modelData.seatId, rangeField.text)
@@ -541,25 +606,25 @@ Rectangle {
                             }
                             Row {
                                 width: parent.width; spacing: 4
-                                Button {
+                                TrainerButton {
                                     width: (parent.width - 12) / 4
                                     text: "TIGHT"
                                     onClicked: kb.applyRange(opponentRow.modelData.seatId,
                                         "99+,AJs+,AQo+,KQs")
                                 }
-                                Button {
+                                TrainerButton {
                                     width: (parent.width - 12) / 4
                                     text: "MED"
                                     onClicked: kb.applyRange(opponentRow.modelData.seatId,
                                         "66+,ATs+,AJo+,KTs+,KQo,QJs,JTs")
                                 }
-                                Button {
+                                TrainerButton {
                                     width: (parent.width - 12) / 4
                                     text: "WIDE"
                                     onClicked: kb.applyRange(opponentRow.modelData.seatId,
                                         "22+,A2s+,A8o+,K8s+,KTo+,Q9s+,QJo,J9s+,T9s,98s,87s")
                                 }
-                                Button {
+                                TrainerButton {
                                     width: (parent.width - 12) / 4
                                     text: "ANY"
                                     onClicked: kb.applyRange(opponentRow.modelData.seatId, "")
@@ -614,7 +679,7 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     text: kb.explanationTitle
                 }
-                Button { text: "Close"; onClicked: explanationPopup.close() }
+                TrainerButton { text: "Close"; onClicked: explanationPopup.close() }
             }
             ScrollView {
                 Layout.fillWidth: true
@@ -629,7 +694,7 @@ Rectangle {
                     text: kb.explanationBody
                 }
             }
-            Button {
+            TrainerButton {
                 Layout.fillWidth: true
                 visible: kb.replayEvent !== null
                 text: "REPLAY CALCULATION"
@@ -670,7 +735,7 @@ Rectangle {
                     font.bold: true
                     font.pixelSize: 18
                 }
-                Button { text: "Close"; onClicked: progressPopup.close() }
+                TrainerButton { text: "Close"; onClicked: progressPopup.close() }
             }
             ScrollView {
                 Layout.fillWidth: true
@@ -945,7 +1010,7 @@ Rectangle {
                             text: "Recorded decisions — tap to inspect/replay"
                             color: "#f0d891"; font.bold: true; font.pixelSize: 12
                         }
-                        Button { text: "Refresh"; onClicked: kb.refreshHistory() }
+                        TrainerButton { text: "Refresh"; onClicked: kb.refreshHistory() }
                     }
                     Repeater {
                         model: kb.recentDecisions || []
@@ -971,7 +1036,7 @@ Rectangle {
                               + "erases it. Use the same signing key for updates, or copy "
                               + "your JSON backup before uninstalling. Restore replaces current history."
                     }
-                    Button {
+                    TrainerButton {
                         text: "Copy history JSON"
                         onClicked: kb.backupMessage = GameTable.kibitzerCopyBackup()
                                    ? "History copied to clipboard" : "Backup unavailable"
@@ -987,7 +1052,7 @@ Rectangle {
                         background: Rectangle { color: "#33435a"; radius: 6 }
                         onTextChanged: kb.confirmRestore = false
                     }
-                    Button {
+                    TrainerButton {
                         text: kb.confirmRestore ? "CONFIRM: replace saved history" : "Restore pasted history (replace)"
                         enabled: restoreArea.text.length > 0
                         onClicked: {
