@@ -127,6 +127,10 @@ jobs:
             tests/kibitzer/test_ranges.cpp \
             src/engine/local_engine/holecardsrange.cpp -o /tmp/kibitzer-ranges-test
           /tmp/kibitzer-ranges-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp \
+            tests/kibitzer/test_aggression.cpp -o /tmp/kibitzer-aggression-test
+          /tmp/kibitzer-aggression-test
       - name: Build signed APK
         run: |
           export VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
