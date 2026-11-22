@@ -13,6 +13,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QPointer>
+#include <QHash>
 #include <vector>
 #include <atomic>
 #include <list>
@@ -126,6 +127,7 @@ class GameHandler : public QObject
 
 	Q_PROPERTY(QVariantMap kibitzerReview READ kibitzerReview NOTIFY kibitzerReviewChanged)
 	Q_PROPERTY(QVariantMap kibitzerProgress READ kibitzerProgress NOTIFY kibitzerProgressChanged)
+	Q_PROPERTY(QVariantList kibitzerOpponentRanges READ kibitzerOpponentRanges NOTIFY kibitzerRangesChanged)
 	Q_PROPERTY(QVariantList players READ players NOTIFY playersChanged)
 	Q_PROPERTY(int pot READ pot NOTIFY potChanged)
 	Q_PROPERTY(int gameId READ gameId NOTIFY gameIdChanged)
@@ -236,6 +238,8 @@ public:
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
 	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
+	Q_INVOKABLE QVariantList kibitzerOpponentRanges() const;
+	Q_INVOKABLE QVariantMap kibitzerSetOpponentRange(int seatId, const QString &notation);
 	Q_INVOKABLE QVariantMap kibitzerReplayDecision(const QVariantMap &decision) const;
 	Q_INVOKABLE QVariantList kibitzerRecentDecisions(int limit = 20) const;
 	// Changes whenever a local game is started or left. The delayed
@@ -503,6 +507,7 @@ public:
 signals:
 	void kibitzerProgressChanged();
 	void kibitzerReviewChanged();
+	void kibitzerRangesChanged();
 	void playersChanged();
 	void potChanged();
 	void gameIdChanged();
@@ -656,6 +661,9 @@ private:
 	QElapsedTimer m_afkResetTimer;
 	static constexpr qint64 kAfkResetIntervalMs = 3 * 60 * 1000; // 3 min
 
+	// User-specified hypotheses by local seat ID; never inferred from hidden bot cards.
+	// Reset for each newly started local table, retained across its hands.
+	QHash<int, QString> m_kibitzerManualRanges;
 	QVariantMap m_kibitzerProgress;
 	QVariantList m_kibitzerHistory;
 	int m_kibitzerSessionId = 1;
