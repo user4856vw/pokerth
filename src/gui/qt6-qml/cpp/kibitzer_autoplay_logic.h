@@ -7,8 +7,11 @@
 namespace KibitzerAutoplay {
 
 enum class Action { Check, Call, Fold, Raise };
+// Council's actual combined stance (not merely its component pot-odds lens).
+enum class CouncilStance { Abstain, Check, Call, Fold, Raise };
 
 struct Input {
+    CouncilStance council = CouncilStance::Abstain;
     bool adviceReady = false;
     bool rangesUsable = true;
     int price = 0;
@@ -25,7 +28,7 @@ struct Input {
 struct Decision {
     Action action;
     int amount;
-    bool provisional; // A tie-break, missing model, or unpriced aggression.
+    bool provisional; // Not an executable Council consensus (or lacks a model).
     const char *reason;
 };
 
@@ -42,7 +45,8 @@ inline Decision choose(const Input &in)
         return {in.price == 0 ? Action::Check : Action::Fold, 0, true,
                 "model-unavailable-safe-check-or-fold"};
     }
-    if (in.modeledRaiseEdge && in.modeledRaiseSize > 0 &&
+    if (in.council == CouncilStance::Raise &&
+        in.modeledRaiseEdge && in.modeledRaiseSize > 0 &&
         in.minRaise > 0 && in.maxRaise >= in.minRaise &&
         in.modeledRaiseSize >= in.minRaise &&
         in.modeledRaiseSize <= in.maxRaise) {
@@ -51,18 +55,18 @@ inline Decision choose(const Input &in)
     }
     // No free folds, even if a conditional aggression signal exists.
     if (in.price <= 0)
-        return {Action::Check, 0, in.aggressionCandidate,
-                in.aggressionCandidate ? "free-check-unpriced-raise"
-                                       : "free-check"};
+        return {Action::Check, 0, in.council != CouncilStance::Check,
+                in.council == CouncilStance::Check
+                    ? "council-check" : "safe-free-check-no-council-consensus"};
 
     if (in.equity > in.required + in.margin)
-        return {Action::Call, in.price, in.aggressionCandidate,
-                in.aggressionCandidate ? "call-unpriced-raise"
-                                       : "call-favored"};
+        return {Action::Call, in.price, in.council != CouncilStance::Call,
+                in.council == CouncilStance::Call
+                    ? "council-call" : "pot-odds-lens-call-no-council-consensus"};
     if (in.equity < in.required - in.margin)
-        return {Action::Fold, 0, in.aggressionCandidate,
-                in.aggressionCandidate ? "fold-unpriced-raise"
-                                       : "fold-favored"};
+        return {Action::Fold, 0, in.council != CouncilStance::Fold,
+                in.council == CouncilStance::Fold
+                    ? "council-fold" : "pot-odds-lens-fold-no-council-consensus"};
 
     // Council abstains in this band. To keep the trial running, use the
     // raw pot-odds comparison as an *explicitly provisional* tie-break.
