@@ -128,65 +128,77 @@ is accepted.
 
 ## Strategy council (modeled expert-style cross-check, v1)
 
-The live Kibitzer adds a tappable **STRATEGY COUNCIL** result under
-BET EV. It reports either `MODELS ALIGN: <action>`,
-`MODEL DISAGREEMENT`, or `INSUFFICIENT COMPARABLE MODELS`.
-Tap it for four lenses and their detailed assumptions:
+The live Kibitzer adds a tappable **MODEL COUNCIL** row below BET EV.
+It reports one of:
 
-1. **Pot-odds discipline:** compares conditional showdown equity with
-   `call / (pot + call)`, with the displayed caution margin. With a free
-   check, `CHECK` is merely a cost-free fallback, *not* proven optimal.
-2. **Assumption stress test:** with manually assigned ranges on a priced
-   decision, compares the random-opponent baseline against conditioned
-   equity. This check counts only if both clear their margins on the
-   same action. If they disagree, it explicitly reports sensitivity.
-3. **Value and pressure scout:** surfaces the existing Stage-A premium,
-   value or semibluff opportunity to *study* a raise. This is never
-   counted as an actionable `RAISE` vote: no opponent fold/call EV has
-   been computed.
-4. **Response-aware chip EV:** only when the user configures opponent
-   continuing ranges and Stage B produces a supported result. This
-   lens can prefer a modeled bet/raise, favor the passive reference, or
-   abstain when results remain within simulation uncertainty.
+- **NO COMPLETE ACTION COMPARISON** — only the simple equity and
+  pedagogical heuristic checks exist; there is no full action ranking.
+- **CONDITIONAL RAISE EDGE** — Stage B found one of its two modeled
+  raise sizes better than the passive reference beyond sampling error,
+  conditional on the user's continuing-range assumptions.
+- **TESTED PASSIVE: CALL/FOLD/CHECK** — Stage B found both tested
+  raises inferior to its passive reference, and the separate
+  pot-odds check resolved which passive alternative is supported.
+- **BET EV: NO DECISIVE EDGE** — the model cannot distinguish the
+  tested raise from the passive action beyond its sampling uncertainty.
 
-The council calls a result **aligned** only when two or more *comparable*
-checks select exactly the same action **and no comparable check
-contradicts it**. It never treats a majority as unanimity. The response
-model is heads-up only, and its two preset sizes are not a full
-optimization.
+Tap the row to inspect four named educational lenses:
+
+1. **Pot-odds discipline:** only compares *CALL versus FOLD*
+   (or notes CHECK is free) using `call / (pot + call)` and the
+   displayed margin. It never asserts that calling beats raising.
+2. **Assumption stress test:** compares this narrow CALL/FOLD judgment
+   against uniform-random cards and the user's selected opponent
+   range. It identifies range-sensitive findings; **it is not an
+   additional independent vote**, because it reuses pot-odds equity.
+3. **Value and pressure scout:** reports Stage-A premium/value/draw
+   situations worth studying as a possible raise. A candidate is
+   **not** numerical positive EV and never counts as a decision vote.
+4. **Response-aware chip EV:** only when the user has supplied
+   appropriate heads-up continuing ranges. It tests two concrete
+   sizes against the passive reference, reporting an edge only
+   beyond the sampled margin. A "raise better than call" conclusion
+   is perfectly compatible with "call better than fold."
+
+These are complementary comparisons, not four independent competing
+action votes. The UI deliberately does not manufacture a percentage
+of consensus or a false disagreement between non-exclusive results.
 
 ### Critical provenance limitation
 
-This is **not a survey or consensus of named world-class professional
-players**. The four lenses are transparent deterministic heuristics;
-some reuse the same sampled equity and so are **not independent expert
-opinions**. No actual poker pro has been consulted, no player-specific
-strategy has been reproduced, and no game-theoretic-optimal (GTO)
-solver is involved. Actual expert consensus would require verifiable
-hand-by-hand expert annotations or a calibrated solver dataset, with
-provenance and coverage of different positions, stacks, action
-sequences, and board textures. The UI makes this distinction explicit.
+**No real world-class professional players have been consulted.**
+There are no named expert votes, professional endorsements, live
+opinions, verified player-style models or GTO solver outputs. The
+lenses are transparent deterministic checks; the same sampled
+equity supports more than one lens. Actual pro consensus would
+require verifiable expert-by-hand annotations or validated solver
+data, including provenance, positions, stacks, betting sequences,
+board textures and opponent ranges.
 
-The full council output and inputs are saved with each new decision
-snapshot, so they remain inspectable even when current ranges change.
-Existing `REPLAY CALCULATION` checks seeded equities, **not** complete
-Stage-B EV or the council's underlying hypotheses.
+The full council output and recorded inputs are stored in each new
+hand-decision snapshot. They can be inspected after later range edits.
+Existing **REPLAY CALCULATION** verifies seeded equity samples; it
+does not independently reproduce Stage-B EV or the council's
+missing assumptions. No opponent hidden cards are read; the
+feature remains local-only and never triggers a poker action.
 
-### Android acceptance checks
+### Acceptance checks
 
-- With no manual ranges and no Stage-B response model, the council
-  must display **INSUFFICIENT COMPARABLE MODELS**, not fabricated agreement.
-- With both equity hypotheses safely favoring a priced call and the
-  response model unavailable, the council must show **MODELS ALIGN: CALL**;
-  the detail must explain that the stress check reuses inputs.
-- When assigned-range equity favors a call but the random baseline
-  clearly favors a fold, display the sensitivity warning and no
-  model-wide agreement without further evidence.
-- When Stage B favors raising while the pot-odds check favors calling,
-  display **MODEL DISAGREEMENT**, even if two related passive checks agree.
-- A Stage-A draw candidate must appear as **STUDY A RAISE**, but it
-  cannot itself create a raise consensus.
-- Tapping the row must display the equity values, threshold, margin,
-  input assumption statuses, per-lens reasoning and source limitation.
-- New saved decisions expose their original council calculations under
-  the decision-detail view; old history lacking council data remains valid.
+1. With no continuing-range response model, display **NO COMPLETE
+   ACTION COMPARISON** even if pot odds strongly favor calling.
+2. Assign a tight opponent range that reverses the priced
+   CALL/FOLD result from the random baseline; display a range
+   sensitivity warning in the council details.
+3. For a heads-up response model supporting a significant raise
+   advantage, display **CONDITIONAL RAISE EDGE**, regardless of
+   whether the separate pot-odds check favors calling over folding.
+   Never call these findings contradictory.
+4. If raises are inferior beyond the sampling margin, display
+   **TESTED PASSIVE** and its supported CHECK/CALL/FOLD action.
+5. If Stage B is within sampling error, report **NO DECISIVE EDGE**.
+6. A Stage-A aggression candidate may say **STUDY A RAISE** but
+   never casts a fictitious full-action vote.
+7. Tapping the row exposes assumptions, baseline and conditioned
+   equities, call threshold, margin and per-lens explanations.
+8. New saved decisions retain their original council evidence.
+   Pre-feature saved histories load and replay without it.
