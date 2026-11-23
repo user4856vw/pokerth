@@ -140,7 +140,7 @@ inline Assessment assess(const Input &in) {
 // lens: its alignment is a sensitivity check, not independent confirmation.
 namespace KibitzerCouncil {
 
-enum class Stance { Abstain, Fold, Check, Call, Raise, ExploreRaise };
+enum class Stance { Abstain, Fold, Check, Call, Raise, Passive, ExploreRaise };
 
 struct Input {
     int price = 0;
@@ -159,7 +159,7 @@ struct Lens {
     const char *label = "";
     Stance stance = Stance::Abstain;
     const char *reason = "";
-    bool comparable = false;  // "raise to study" cannot be counted as a vote
+    bool comparable = false;  // actual calculation; not a vote of a person
 };
 
 struct Result {
@@ -190,14 +190,15 @@ inline Result assess(const Input &in) {
         in.judgedEquity < 0.0 || in.judgedEquity > 1.0 ||
         in.required < 0.0 || in.required > 1.0) return r;
 
+    // Important: positive CALL EV versus FOLD does NOT mean CALL is better
+    // than RAISE. This first lens makes only that narrow comparison.
     const Stance priced = potOdds(in.judgedEquity, in.required, in.margin, in.price);
     r.lenses[0] = {"Pot-odds discipline", priced,
         in.price == 0 ? "A check is free; no assertion that checking beats betting."
-        : "Compare conditioned showdown equity to the immediate call threshold plus its margin; no future-bet model.",
+        : "Compare CALL versus FOLD using conditioned showdown equity and its displayed margin. No claim versus raising.",
         priced != Stance::Abstain};
 
-    // Only claim a range-robust result if the random and selected-range
-    // hypotheses both clearly choose the SAME priced action.
+    // A sensitivity check on the SAME comparison is not an independent vote.
     const Stance random = potOdds(in.randomEquity, in.required,
                                   std::max(0.12, in.margin), in.price);
     Stance robust = Stance::Abstain;
@@ -208,52 +209,42 @@ inline Result assess(const Input &in) {
         priced != Stance::Abstain && random != priced;
     r.lenses[1] = {"Assumption stress test", robust,
         !in.manualRanges ? "Requires your assigned opponent ranges; random-only data cannot test sensitivity."
-        : r.sensitiveToRanges ? "Random and assigned-range hypotheses do not give the same clear action."
-        : robust != Stance::Abstain ? "Both random and selected-range models pass their respective caution margins."
-        : "No same-action result survives both hypothesis margins.",
-        robust != Stance::Abstain};
+        : r.sensitiveToRanges ? "Random and selected-range hypotheses do not give the same clear CALL-vs-FOLD result."
+        : robust != Stance::Abstain ? "Both hypotheses pass their respective caution margins for the SAME CALL-vs-FOLD result."
+        : "No result survives both range-hypothesis margins.",
+        false};
 
     r.lenses[2] = {"Value and pressure scout",
         in.aggressionCandidate ? Stance::ExploreRaise : Stance::Abstain,
         in.aggressionCandidate
-            ? "Stage A found a premium/value/draw candidate. This is a research lead, NOT positive raise EV."
-            : "No supported Stage-A pressure signal; that is not evidence against betting.",
+            ? "Stage A flags a possible premium/value/draw raise to STUDY. No positive raise EV is established."
+            : "No Stage-A pressure flag; this is not evidence against betting.",
         false};
 
-    Stance bet = Stance::Abstain;
-    if (in.betEvReady && in.betEvRaiseEdge) bet = Stance::Raise;
-    else if (in.betEvReady && in.betEvPassiveEdge) bet = priced;
-    r.lenses[3] = {"Response-aware chip EV", bet,
-        !in.betEvReady ? "Requires a heads-up opponent continuing-range model; not configured or unsupported."
-        : in.betEvRaiseEdge ? "An evaluated bet size exceeds the passive reference beyond the sampling margin, conditional on supplied response ranges."
-        : in.betEvPassiveEdge ? "Evaluated raises trail the passive reference; the passive action still depends on the pot-odds check."
-        : "Best evaluated size is within sampling error; no decisive comparison.",
-        bet != Stance::Abstain};
+    // This is the ONLY lens comparing a specified raise with the passive
+    // alternative. Its samples and assumptions are not expert votes.
+    const Stance betting = !in.betEvReady ? Stance::Abstain
+        : in.betEvRaiseEdge ? Stance::Raise
+        : in.betEvPassiveEdge ? Stance::Passive
+        : Stance::Abstain;
+    r.lenses[3] = {"Response-aware chip EV", betting,
+        !in.betEvReady ? "Requires a heads-up continuing-range model; unavailable for this decision."
+        : in.betEvRaiseEdge ? "A tested bet size beats the best passive action beyond the sampling margin, conditional on opponent responses."
+        : in.betEvPassiveEdge ? "Tested raises lose to the best passive action; pot odds separately choose CALL/FOLD or free CHECK."
+        : "Best tested raise is within Monte Carlo sampling error of the passive option.",
+        betting != Stance::Abstain};
 
-    // An alignment label describes MODEL concordance, not a head-count of
-    // experts, an independent statistical sample, or a Nash/GTO solution.
-    for (const Lens &lens : r.lenses) {
-        if (!lens.comparable) continue;
-        ++r.comparable;
+    r.comparable = int(r.lenses[0].comparable) + int(r.lenses[3].comparable);
+    // These checks address complementary comparisons. Only a significant
+    // PASSIVE result plus a resolved FOLD/CALL (or free CHECK) can compose
+    // into an action among the tested alternatives. A RAISE edge is a
+    // single conditional EV result, NOT a multi-expert consensus.
+    if (betting == Stance::Passive && priced != Stance::Abstain) {
+        r.consensus = priced;
+        r.supporting = 2;
+    } else if (r.comparable > 0) {
+        r.supporting = 1;
     }
-    if (r.comparable < 2) return r;
-    int largestGroup = 0;
-    Stance leading = Stance::Abstain;
-    for (const Lens &candidate : r.lenses) {
-        if (!candidate.comparable) continue;
-        int same = 0;
-        for (const Lens &other : r.lenses)
-            if (other.comparable && other.stance == candidate.stance) ++same;
-        if (same > largestGroup) {
-            largestGroup = same;
-            leading = candidate.stance;
-        }
-    }
-    r.supporting = largestGroup;
-    r.conflicting = r.comparable - largestGroup;
-    // Alignment demands at least TWO matching tests and ZERO contradictions.
-    // Otherwise report a split, even if a majority favors one action.
-    if (largestGroup >= 2 && r.conflicting == 0) r.consensus = leading;
     return r;
 }
 
