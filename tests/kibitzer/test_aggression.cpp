@@ -113,7 +113,7 @@ int main() {
 
         in.randomEquity = 0.65;
         in.betEvReady = true;
-        in.betEvRaiseEdge = true; // Bet EV conflicts with passive CALL.
+        in.betEvRaiseEdge = true; // RAISE can outperform an otherwise viable CALL.
         in.aggressionCandidate = true;
         c = KibitzerCouncil::assess(in);
         assert(c.lenses[2].stance == KibitzerCouncil::Stance::ExploreRaise);
