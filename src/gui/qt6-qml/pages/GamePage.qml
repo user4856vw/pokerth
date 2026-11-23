@@ -154,6 +154,7 @@ Rectangle {
     property bool autoTrialEnabled: false
     property double autoTrialDeadline: 0
     property int autoTrialTournaments: 0
+    property bool autoTrialTournamentCounted: false
     property int autoTrialDecisions: 0
     property int autoTrialProvisional: 0
     property string autoTrialLastReason: ""
@@ -169,6 +170,7 @@ Rectangle {
         actionBar.applyPlayingMode(0)
         actionBar.preAction = ""
         autoTrialTournaments = 0
+        autoTrialTournamentCounted = false
         autoTrialDecisions = 0
         autoTrialProvisional = 0
         autoTrialLastReason = ""
@@ -192,6 +194,16 @@ Rectangle {
             stopAutoTrial()
             return false
         }
+        return true
+    }
+    function finishAutoTrialTournament() {
+        if (!autoTrialEnabled) return false
+        if (!autoTrialTournamentCounted) {
+            autoTrialTournamentCounted = true
+            autoTrialTournaments += 1
+        }
+        if (!autoTrialInBounds()) return false
+        autoTrialRestartTimer.restart()
         return true
     }
     function scheduleAutoTrialStep() {
@@ -230,6 +242,7 @@ Rectangle {
             if (gamePage.autoTrialInBounds()) {
                 gameOverPopup.close()
                 GameTable.startLocalGame()
+                gamePage.autoTrialTournamentCounted = false
                 gamePage.scheduleAutoTrialStep()
             }
         }
@@ -247,6 +260,15 @@ Rectangle {
         function onAwaitingMyActionChanged() { gamePage.scheduleAutoTrialStep() }
         function onWaitingForNextHandChanged() { gamePage.scheduleAutoTrialStep() }
         function onActionRejected() { gamePage.scheduleAutoTrialStep() }
+        function onKibitzerProgressChanged() {
+            if (!gamePage.autoTrialEnabled) return
+            var progress = GameTable.kibitzerProgress || {}
+            var tournament = progress.tournament || {}
+            // Elimination has already been settled and recorded by C++.
+            // Do not waste the night waiting for the remaining bots to finish.
+            if (tournament.active === false && tournament.currentStack === 0)
+                gamePage.finishAutoTrialTournament()
+        }
     }
     Component.onDestruction: stopAutoTrial()
 
@@ -2190,13 +2212,8 @@ Rectangle {
     Connections {
         target: GameTable
         function onLocalGameFinished(winnerName, winnerSeatId) {
-            if (gamePage.autoTrialEnabled) {
-                gamePage.autoTrialTournaments += 1
-                if (gamePage.autoTrialInBounds()) {
-                    autoTrialRestartTimer.restart()
-                    return
-                }
-            }
+            if (gamePage.autoTrialEnabled && gamePage.finishAutoTrialTournament())
+                return
             gameOverPopup.winnerName = winnerName
             gameOverPopup.humanWon = (winnerSeatId === 0)
             gameOverPopup.open()
