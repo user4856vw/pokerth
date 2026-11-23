@@ -1174,6 +1174,9 @@ QVariantMap GameHandler::kibitzerAdvice() const
     // This distinction matters: the local engine may know those cards, but
     // a human-facing adviser must behave as though it does not.
     int opponents = 0;
+    int singleOpponentSeat = -1;
+    int singleOpponentCash = 0;
+    bool anyAllIn = hand->getAllInCondition();
     auto activePlayers = hand->getActivePlayerList();
     if (!activePlayers)
         return out;
@@ -1181,6 +1184,10 @@ QVariantMap GameHandler::kibitzerAdvice() const
         if (player->getMyID() == 0) continue;
         if (player->getMyAction() == PLAYER_ACTION_FOLD) continue;
         ++opponents;
+        singleOpponentSeat = player->getMyID();
+        singleOpponentCash = player->getMyCash();
+        if (player->getMyAction() == PLAYER_ACTION_ALLIN)
+            anyAllIn = true;
     }
     if (opponents <= 0) return out;
 
@@ -1418,6 +1425,11 @@ QVariantMap GameHandler::kibitzerAdvice() const
         out["explanation"] = aggressionInfo.value("reason").toString() +
              QStringLiteral(" ") + aggressionInfo.value("explanation").toString();
     }
+    // Phase B remains a separate, conditional numerical comparison. It never
+    // overwrites conservative Stage-A advice or changes what action is sent.
+    out["betSizing"] = kibitzerBetSizingEstimate(hole,board,boardSize,
+        opponents,singleOpponentSeat,singleOpponentCash,anyAllIn,pot,price,
+        judged,ag.standardError);
     return out;
 }
 
