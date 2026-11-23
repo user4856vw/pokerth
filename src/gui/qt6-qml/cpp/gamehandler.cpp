@@ -1314,7 +1314,8 @@ QVariantMap GameHandler::kibitzerHistoricalEvidence(
         !isMyTurnToAct() || opponents<1)
         return result;
     const auto hand=m_game->getCurrentHand();
-    const auto seats=hand ? hand->getSeatsList() : nullptr;
+    if (!hand) return result;
+    const auto seats=hand->getSeatsList();
     if (!seats) return result;
     int button=0,heroCash=-1,heroSet=0;
     for (const auto &p : *seats)
