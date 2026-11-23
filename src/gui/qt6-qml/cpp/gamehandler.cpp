@@ -1499,21 +1499,29 @@ QVariantMap GameHandler::kibitzerAdvice() const
         case KibitzerCouncil::Stance::Check: return QStringLiteral("CHECK");
         case KibitzerCouncil::Stance::Call: return QStringLiteral("CALL");
         case KibitzerCouncil::Stance::Raise: return QStringLiteral("BET/RAISE");
+        case KibitzerCouncil::Stance::Passive: return QStringLiteral("PASSIVE LINE");
         case KibitzerCouncil::Stance::ExploreRaise: return QStringLiteral("STUDY A RAISE");
         default: return QStringLiteral("ABSTAIN");
         }
     };
     QVariantMap councilInfo;
     councilInfo["modelVersion"] = QStringLiteral("transparent-strategy-lenses-v1");
-    councilInfo["status"] = council.comparable < 2 ? QStringLiteral("limited")
+    // A CALL-vs-FOLD finding and a RAISE-vs-PASSIVE finding are not
+    // competing recommendations. They can both be true simultaneously.
+    councilInfo["status"] = ci.betEvRaiseEdge ? QStringLiteral("conditional-raise")
         : (council.consensus != KibitzerCouncil::Stance::Abstain
-            ? QStringLiteral("aligned") : QStringLiteral("split"));
-    councilInfo["headline"] = council.consensus != KibitzerCouncil::Stance::Abstain
-        ? QStringLiteral("MODELS ALIGN: ") + stanceName(council.consensus)
-        : council.comparable < 2
-            ? QStringLiteral("INSUFFICIENT COMPARABLE MODELS")
-            : QStringLiteral("MODEL DISAGREEMENT");
-    councilInfo["stance"] = stanceName(council.consensus);
+            ? QStringLiteral("conditional-passive")
+            : (ci.betEvReady ? QStringLiteral("unresolved")
+                             : QStringLiteral("partial")));
+    councilInfo["headline"] = ci.betEvRaiseEdge
+        ? QStringLiteral("CONDITIONAL RAISE EDGE")
+        : council.consensus != KibitzerCouncil::Stance::Abstain
+            ? QStringLiteral("TESTED PASSIVE: ") + stanceName(council.consensus)
+            : ci.betEvReady
+                ? QStringLiteral("BET EV: NO DECISIVE EDGE")
+                : QStringLiteral("NO COMPLETE ACTION COMPARISON");
+    councilInfo["stance"] = ci.betEvRaiseEdge
+        ? QStringLiteral("BET/RAISE") : stanceName(council.consensus);
     councilInfo["comparable"] = council.comparable;
     councilInfo["supporting"] = council.supporting;
     councilInfo["conflicting"] = council.conflicting;
@@ -1522,8 +1530,11 @@ QVariantMap GameHandler::kibitzerAdvice() const
     councilInfo["caveat"] = QStringLiteral(
         "These four named LENSES are deterministic tests, NOT named players, "
         "professional opinions, independent votes, a live survey, or a GTO solver. "
-        "The price and assumption tests reuse the same equities. Alignment only "
-        "means these related, incomplete models do not contradict one another. "
+        "A profitable CALL against FOLD can coexist with a BET/RAISE having still "
+        "higher EV. The range stress test reuses pot-odds equity and NEVER "
+        "constitutes a second independent vote. BET EV compares only two "
+        "specified sizes against a passive reference under your assumed "
+        "response ranges. Neither agreement nor a raise edge is pro consensus. "
         "Future betting, ICM, position-dependent ranges, multiway re-raises, "
         "and mistaken opponent assumptions can overturn every displayed conclusion.");
     QVariantList lensRows;
