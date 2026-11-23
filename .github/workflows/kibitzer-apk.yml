@@ -145,6 +145,11 @@ jobs:
             -I src/gui/qt6-qml/cpp \
             tests/kibitzer/test_mc_config.cpp -o /tmp/kibitzer-mc-config-test
           /tmp/kibitzer-mc-config-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp \
+            tests/kibitzer/test_pro_matcher.cpp -o /tmp/kibitzer-pro-matcher-test
+          /tmp/kibitzer-pro-matcher-test
+          python3 scripts/validate_kibitzer_pro_corpus.py
       - name: Build signed APK
         run: |
           export VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
