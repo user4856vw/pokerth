@@ -910,7 +910,9 @@ QVariantMap GameHandler::kibitzerSetBetResponse(
         return out;
     }
     for (const QString &raw : {half, full}) {
-        if (raw.isEmpty()) continue;
+        if (raw.isEmpty() || raw.compare(QLatin1String("ANY"),Qt::CaseInsensitive)==0
+            || raw.compare(QLatin1String("RANDOM"),Qt::CaseInsensitive)==0
+            || raw == QLatin1String("*")) continue;
         HoleCardsRange c;
         if (!c.add(raw.toStdString()) || c.empty()) {
             out["message"] = QStringLiteral("Invalid continue range. Use AA,TT+,AKs etc.; blank disables size.");
@@ -1037,15 +1039,22 @@ QVariantMap GameHandler::kibitzerBetSizingEstimate(
             rows.append(row);
             continue;
         }
+        const bool continueAll =
+            c.notation.compare(QLatin1String("ANY"),Qt::CaseInsensitive)==0
+            || c.notation.compare(QLatin1String("RANDOM"),Qt::CaseInsensitive)==0
+            || c.notation == QLatin1String("*");
         HoleCardsRange continuing;
-        if (!continuing.add(c.notation.toStdString()) || continuing.empty()) {
+        if (!continueAll &&
+            (!continuing.add(c.notation.toStdString()) || continuing.empty())) {
             row["status"] = QStringLiteral("invalid");
             row["reason"] = QStringLiteral("Invalid continuing-range notation.");
             rows.append(row);
             continue;
         }
-        const auto counts = KibitzerBetSizing::countResponses(prior,continuing,
-                                                               hole,board,boardSize);
+        const auto counts = continueAll
+            ? KibitzerBetSizing::countAllResponses(prior,hole,board,boardSize)
+            : KibitzerBetSizing::countResponses(prior,continuing,
+                                                hole,board,boardSize);
         if (!counts.subset || !counts.valid) {
             row["status"] = QStringLiteral("invalid");
             row["reason"] = !counts.subset
@@ -1062,7 +1071,7 @@ QVariantMap GameHandler::kibitzerBetSizingEstimate(
         // although the Phase-B result is not yet part of deterministic replay.
         constexpr int kResponseSamples = 2200;
         const std::uint32_t responseSeed = QRandomGenerator::global()->generate() | 1U;
-        std::vector<const HoleCardsRange*> ranges{&continuing};
+        std::vector<const HoleCardsRange*> ranges{continueAll ? prior : &continuing};
         const auto callEquity = EquityCalculator::equity(
             hole,board,boardSize,ranges,kResponseSamples,responseSeed,true);
         row["samples"] = callEquity.samples;
