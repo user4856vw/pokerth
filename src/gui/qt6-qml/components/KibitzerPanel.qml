@@ -140,20 +140,19 @@ Rectangle {
             return "No comparable model checks are available for this decision."
         var body = "MODELED STRATEGY CHECKS — NOT ACTUAL PRO OPINIONS\n\n"
             + c.headline + ".\n"
-            + "Comparable tests: " + c.comparable
-            + "; agreeing: " + c.supporting
-            + "; model conflicts: " + c.conflicting + ".\n"
+            + "Action-relevant model findings: " + c.comparable
+            + "; jointly supporting the tested action: " + c.supporting + ".\n"
             + (c.rangeSensitive
                 ? "WARNING: the random and manually assigned ranges disagree on the priced decision.\n"
                 : "")
         for (var i=0; i<c.lenses.length; ++i) {
             var lens = c.lenses[i]
             body += "\n" + lens.name + " — " + lens.stance
-                + (lens.comparable ? " [comparable]" : " [not a decision vote]")
+                + (lens.comparable ? " [action-relevant, conditional]" : " [context only, not a vote]")
                 + "\n" + lens.reason + "\n"
         }
         var e = c.evidence || {}
-        body += "\nREPRODUCIBLE INPUTS\n"
+        body += "\nRECORDED CALCULATION INPUTS\n"
             + "Random equity: " + fmt(100 * Number(e.randomEquity || 0))
             + "; assumed-range equity: " + fmt(100 * Number(e.judgedEquity || 0))
             + "; pot-odds threshold: " + fmt(100 * Number(e.requiredEquity || 0))
@@ -669,12 +668,13 @@ Rectangle {
         Text {
             visible: !kb.reviewMode && kb.advice.status === "ready"
             width: parent.width
-            color: (kb.advice.council && kb.advice.council.status === "aligned")
+            color: (kb.advice.council && (kb.advice.council.status === "conditional-raise"
+                        || kb.advice.council.status === "conditional-passive"))
                    ? "#b9f0d1" : "#f0d891"
             font.pixelSize: 11
             font.bold: true
             elide: Text.ElideRight
-            text: "STRATEGY COUNCIL · "
+            text: "MODEL COUNCIL · "
                 + (kb.advice.council ? kb.advice.council.headline : "no model") + " ⓘ"
             MouseArea { anchors.fill: parent; onClicked: kb.explainCouncil() }
         }
