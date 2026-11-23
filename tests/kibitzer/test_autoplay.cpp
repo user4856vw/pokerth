@@ -40,17 +40,21 @@ int main()
     // A suggestion to STUDY a raise is not permission to invent its size.
     a.price = 30; a.equity = 0.80; a.required = 0.20;
     a.minRaise = 60; a.maxRaise = 200;
+    assert(choose(a).action == Action::Raise);
+    assert(choose(a).amount == 60 && choose(a).provisional);
+    a.council = CouncilStance::Passive; // explicit passive evidence blocks an unpriced raise
     assert(choose(a).action == Action::Call);
-    assert(choose(a).provisional);
+    a.council = CouncilStance::Abstain;
     a.modeledRaiseEdge = true;
     a.modeledRaiseSize = 80;
-    assert(choose(a).action == Action::Call); // raise model alone is not consensus
+    assert(choose(a).action == Action::Raise); // still only Stage A's provisional min raise
+    assert(choose(a).amount == 60 && choose(a).provisional);
     a.council = CouncilStance::Raise;
     assert(choose(a).action == Action::Raise);
     assert(choose(a).amount == 80);
     assert(!choose(a).provisional);
 
-    a.modeledRaiseSize = 40; // not a legal raise
+    a.modeledRaiseSize = 40; // not a legal modeled raise
     assert(choose(a).action == Action::Call);
     a.modeledRaiseSize = 250;
     assert(choose(a).action == Action::Call);
