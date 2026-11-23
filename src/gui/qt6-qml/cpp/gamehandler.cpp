@@ -1474,6 +1474,79 @@ QVariantMap GameHandler::kibitzerAdvice() const
     out["betSizing"] = kibitzerBetSizingEstimate(hole,board,boardSize,
         opponents,singleOpponentSeat,singleOpponentCash,anyAllIn,pot,price,
         judged,ag.standardError);
+
+    // Cross-check the distinct questions we can actually answer. This is a
+    // modeled educational council, never impersonation of named poker pros.
+    // Its evidence is correlated; agreement is NOT a human expert vote or GTO.
+    const QVariantMap sizing = out.value("betSizing").toMap();
+    KibitzerCouncil::Input ci;
+    ci.price = price;
+    ci.randomEquity = equity;
+    ci.judgedEquity = judged;
+    ci.required = required;
+    ci.margin = gap;
+    ci.manualRanges = anyCustom;
+    ci.aggressionCandidate = aggression.signal != KibitzerAggression::Signal::None;
+    ci.betEvReady = sizing.value("status").toString() == QLatin1String("ready");
+    ci.betEvRaiseEdge = ci.betEvReady &&
+        sizing.value("modelVerdict").toString() == QLatin1String("raise-candidate");
+    ci.betEvPassiveEdge = ci.betEvReady &&
+        sizing.value("modelVerdict").toString() == QLatin1String("passive-favored");
+    const auto council = KibitzerCouncil::assess(ci);
+    const auto stanceName = [](KibitzerCouncil::Stance stance) -> QString {
+        switch (stance) {
+        case KibitzerCouncil::Stance::Fold: return QStringLiteral("FOLD");
+        case KibitzerCouncil::Stance::Check: return QStringLiteral("CHECK");
+        case KibitzerCouncil::Stance::Call: return QStringLiteral("CALL");
+        case KibitzerCouncil::Stance::Raise: return QStringLiteral("BET/RAISE");
+        case KibitzerCouncil::Stance::ExploreRaise: return QStringLiteral("STUDY A RAISE");
+        default: return QStringLiteral("ABSTAIN");
+        }
+    };
+    QVariantMap councilInfo;
+    councilInfo["modelVersion"] = QStringLiteral("transparent-strategy-lenses-v1");
+    councilInfo["status"] = council.comparable < 2 ? QStringLiteral("limited")
+        : (council.consensus != KibitzerCouncil::Stance::Abstain
+            ? QStringLiteral("aligned") : QStringLiteral("split"));
+    councilInfo["headline"] = council.consensus != KibitzerCouncil::Stance::Abstain
+        ? QStringLiteral("MODELS ALIGN: ") + stanceName(council.consensus)
+        : council.comparable < 2
+            ? QStringLiteral("INSUFFICIENT COMPARABLE MODELS")
+            : QStringLiteral("MODEL DISAGREEMENT");
+    councilInfo["stance"] = stanceName(council.consensus);
+    councilInfo["comparable"] = council.comparable;
+    councilInfo["supporting"] = council.supporting;
+    councilInfo["conflicting"] = council.conflicting;
+    councilInfo["rangeSensitive"] = council.sensitiveToRanges;
+    councilInfo["humanExpertVotes"] = 0;
+    councilInfo["caveat"] = QStringLiteral(
+        "These four named LENSES are deterministic tests, NOT named players, "
+        "professional opinions, independent votes, a live survey, or a GTO solver. "
+        "The price and assumption tests reuse the same equities. Alignment only "
+        "means these related, incomplete models do not contradict one another. "
+        "Future betting, ICM, position-dependent ranges, multiway re-raises, "
+        "and mistaken opponent assumptions can overturn every displayed conclusion.");
+    QVariantList lensRows;
+    for (const auto &lens : council.lenses) {
+        QVariantMap row;
+        row["name"] = QString::fromLatin1(lens.label);
+        row["stance"] = stanceName(lens.stance);
+        row["reason"] = QString::fromLatin1(lens.reason);
+        row["comparable"] = lens.comparable;
+        lensRows.append(row);
+    }
+    councilInfo["lenses"] = lensRows;
+    councilInfo["evidence"] = QVariantMap{
+        {QStringLiteral("randomEquity"), equity},
+        {QStringLiteral("judgedEquity"), judged},
+        {QStringLiteral("requiredEquity"), required},
+        {QStringLiteral("comparisonMargin"), gap},
+        {QStringLiteral("price"), price},
+        {QStringLiteral("customRanges"), anyCustom},
+        {QStringLiteral("betEvStatus"), sizing.value("status")},
+        {QStringLiteral("betEvVerdict"), sizing.value("modelVerdict")},
+        {QStringLiteral("aggressionSignal"), aggressionInfo.value("status")}};
+    out["council"] = councilInfo;
     return out;
 }
 
