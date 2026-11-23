@@ -15,6 +15,9 @@ int main() {
         auto r=countResponses(nullptr,premium,hero,board,0);
         assert(r.valid && r.subset && r.prior==1225 && r.continueCombos==6);
         closeTo(r.foldProbability,1.0-6.0/1225.0);
+        auto all=countAllResponses(nullptr,hero,board,0);
+        assert(all.valid && all.prior==1225 && all.continueCombos==1225);
+        closeTo(all.foldProbability,0.0);
         board[0] = card(14,0); board[1] = card(7,1); board[2] = card(9,2);
         r=countResponses(nullptr,premium,hero,board,3);
         assert(r.valid && r.prior==1081 && r.continueCombos==3);
@@ -26,6 +29,9 @@ int main() {
         auto r=countResponses(&prior,call,hero,board,0);
         assert(r.valid && r.prior==12 && r.continueCombos==6);
         closeTo(r.foldProbability,0.5);
+        const auto all=countAllResponses(&prior,hero,board,0);
+        assert(all.valid && all.prior==12 && all.continueCombos==12);
+        closeTo(all.foldProbability,0.0);
         r=countResponses(&prior,impossible,hero,board,0);
         assert(!r.valid && !r.subset);
         int blocked[2] = {card(14,0),card(3,1)};
