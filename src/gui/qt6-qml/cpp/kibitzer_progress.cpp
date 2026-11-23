@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <algorithm>
 #include <vector>
@@ -302,6 +303,59 @@ void GameHandler::rebuildKibitzerProgress() {
         end=start;
     }
     result["sessions"] = sessions;
+
+    // A rolling, strictly local 30-day historical-evidence field trial.
+    // Count *decisions*, not refreshes of a popup or Monte Carlo calls.
+    // Source data are deliberately tiny: agreement is a descriptive count,
+    // NOT an estimate of expert correctness or a win-rate predictor.
+    const QDateTime nowUtc=QDateTime::currentDateTimeUtc();
+    const QDateTime cutoff=nowUtc.addDays(-30);
+    QDateTime firstTracked;
+    int checked=0, withAnalogue=0, withoutAnalogue=0, agreeing=0, comparableActions=0;
+    QSet<QString> distinctExamples;
+    for (const QVariant &v : m_kibitzerHistory) {
+        const QVariantMap hand=v.toMap();
+        const QDateTime timestamp=QDateTime::fromString(
+            hand.value("completedAt").toString(),Qt::ISODate);
+        if (!timestamp.isValid() || timestamp<cutoff || timestamp>nowUtc) continue;
+        for (const QVariant &actionValue : hand.value("entries").toList()) {
+            const QVariantMap evidence=actionValue.toMap()
+                .value("historicalEvidence").toMap();
+            if (evidence.value("catalogId").toString() !=
+                    QLatin1String("wsop2023-43-day5-nlhe")) continue;
+            ++checked;
+            if (!firstTracked.isValid() || timestamp<firstTracked) firstTracked=timestamp;
+            if (evidence.value("closeMatch").toBool()) {
+                ++withAnalogue;
+                const QString id=evidence.value("matchId").toString();
+                if (!id.isEmpty()) distinctExamples.insert(id);
+                if (evidence.value("actionComparable").toBool()) {
+                    ++comparableActions;
+                    if (evidence.value("sameAction").toBool()) ++agreeing;
+                }
+            } else ++withoutAnalogue;
+        }
+    }
+    QVariantMap pilot;
+    pilot["periodDays"]=30;
+    pilot["decisionsChecked"]=checked;
+    pilot["structuralMatches"]=withAnalogue;
+    pilot["noCloseMatch"]=withoutAnalogue;
+    pilot["distinctHistoricalExamples"]=distinctExamples.size();
+    pilot["comparableActionPairs"]=comparableActions;
+    pilot["sameObservedAction"]=agreeing;
+    pilot["daysSinceFirstDecision"]=firstTracked.isValid()
+        ? int(firstTracked.daysTo(nowUtc)) : 0;
+    pilot["firstRecordedAt"]=firstTracked.isValid()
+        ? firstTracked.toString(Qt::ISODate) : QString();
+    pilot["catalogHands"]=11;
+    pilot["catalogDecisions"]=88;
+    pilot["explanation"]=QStringLiteral(
+        "Rolling last 30 days, recorded after each local decision. "
+        "Close means structural match only. Same action is descriptive, NOT "
+        "accuracy, optimality, a professional endorsement, or independent votes. "
+        "Small, final-table-biased corpus; no data uploaded.");
+    result["historicalPilot"]=pilot;
 
     // BB accounting uses settled-hand evidence, NOT the decision-only filter.
     // A BB is fixed for this individual hand; sum normalized differences
