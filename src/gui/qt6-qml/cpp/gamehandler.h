@@ -128,6 +128,7 @@ class GameHandler : public QObject
 	Q_PROPERTY(QVariantMap kibitzerReview READ kibitzerReview NOTIFY kibitzerReviewChanged)
 	Q_PROPERTY(QVariantMap kibitzerProgress READ kibitzerProgress NOTIFY kibitzerProgressChanged)
 	Q_PROPERTY(QVariantList kibitzerOpponentRanges READ kibitzerOpponentRanges NOTIFY kibitzerRangesChanged)
+	Q_PROPERTY(int kibitzerMonteCarloRuns READ kibitzerMonteCarloRuns NOTIFY kibitzerMonteCarloRunsChanged)
 	Q_PROPERTY(QVariantList players READ players NOTIFY playersChanged)
 	Q_PROPERTY(int pot READ pot NOTIFY potChanged)
 	Q_PROPERTY(int gameId READ gameId NOTIFY gameIdChanged)
@@ -238,6 +239,8 @@ public:
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
 	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
+	int kibitzerMonteCarloRuns() const { return m_kibitzerMonteCarloRuns; }
+	Q_INVOKABLE bool kibitzerSetMonteCarloRuns(int requested);
 	Q_INVOKABLE QVariantList kibitzerOpponentRanges() const;
 	Q_INVOKABLE QVariantMap kibitzerSetOpponentRange(int seatId, const QString &notation);
 	Q_INVOKABLE QVariantMap kibitzerSetBetResponse(int seatId,
@@ -510,6 +513,7 @@ signals:
 	void kibitzerProgressChanged();
 	void kibitzerReviewChanged();
 	void kibitzerRangesChanged();
+	void kibitzerMonteCarloRunsChanged();
 	void playersChanged();
 	void potChanged();
 	void gameIdChanged();
@@ -671,6 +675,7 @@ private:
 
 	// User-specified hypotheses by local seat ID; never inferred from hidden bot cards.
 	// Reset for each newly started local table, retained across its hands.
+	int m_kibitzerMonteCarloRuns = 2500; // user preference; separate from training-history archive
 	QHash<int, QString> m_kibitzerManualRanges;
 	QHash<int, QString> m_kibitzerContinueHalfPot;
 	QHash<int, QString> m_kibitzerContinueFullPot;
