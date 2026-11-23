@@ -718,7 +718,7 @@ Rectangle {
                     Text {
                         width: parent.width; color: "#f0d891"
                         font.pixelSize: 12; font.bold: true
-                        text: "Call range after +½ pot beyond a call"
+                        text: "Calls when extra raise = ½ × pot-after-call"
                     }
                     TrainerRangeField {
                         id: halfContinueField
@@ -728,7 +728,7 @@ Rectangle {
                     Text {
                         width: parent.width; color: "#f0d891"
                         font.pixelSize: 12; font.bold: true
-                        text: "Call range after +1 pot beyond a call"
+                        text: "Calls when extra raise = 1 × pot-after-call"
                     }
                     TrainerRangeField {
                         id: fullContinueField
@@ -855,6 +855,7 @@ Rectangle {
                         font.pixelSize: 11; wrapMode: Text.WordWrap
                         text: "P = pot before acting, C = call cost, X = hero's new chips "
                             + "spent when raising. Opponent calls X-C more. "
+                            + "Sizes are X = C + round(r×(P+C)), with r=½ or 1. "
                             + "EV(raise X) = f×P + (1-f)×[e_call×(P+2X-C) - X]. "
                             + "Reference EV = e_prior×P for CHECK, "
                             + "or max(0, e_prior×(P+C)-C) for FOLD/CALL. "
