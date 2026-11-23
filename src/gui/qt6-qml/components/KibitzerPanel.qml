@@ -711,7 +711,9 @@ Rectangle {
                         text: "For each size, which starting hands would this opponent "
                              + "CALL with? All other hands in the INITIAL RANGES "
                              + "hypothesis are assumed to fold. These are YOUR response "
-                             + "hypotheses, not the bot's known strategy. Blank disables a size."
+                             + "hypotheses, not the bot's known strategy. "
+                             + "ANY means every initial-range hand calls (0% folds); "
+                             + "blank disables a size."
                     }
                     Text {
                         width: parent.width; color: "#f0d891"
@@ -859,7 +861,8 @@ Rectangle {
                             + "Only two exact sizes are considered, never an interpolated optimum. "
                             + "The caller range is chosen by hole-card type, not the board texture. "
                             + "Re-raises, future bets, ICM, model error and opponent adaptation "
-                            + "are NOT modeled. No poker action is placed automatically."
+                            + "are NOT modeled. Stage B does not grade or replay historical raises. "
+                            + "No poker action is placed automatically."
                     }
                 }
             }
