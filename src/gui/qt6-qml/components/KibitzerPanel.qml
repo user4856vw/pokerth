@@ -826,7 +826,7 @@ Rectangle {
                                         + "EV: " + kb.signedNumber(modelData.raiseEV,1)
                                         + " chips; Δ vs " + kb.advice.betSizing.baselineAction
                                         + " = " + kb.signedNumber(modelData.delta,1)
-                                        + " chips; 95% sampling margin ±"
+                                        + " chips; two-size MC guard ±"
                                         + Number(modelData.samplingMargin).toFixed(1)
                                         + " chips. " + modelData.comparison
                                 }
