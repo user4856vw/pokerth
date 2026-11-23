@@ -1449,6 +1449,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         input.council = KibitzerAutoplay::CouncilStance::Fold;
     else if (councilStance == QLatin1String("BET/RAISE"))
         input.council = KibitzerAutoplay::CouncilStance::Raise;
+    else if (councilStance.startsWith(QLatin1String("PASSIVE LINE")))
+        input.council = KibitzerAutoplay::CouncilStance::Passive;
     const QVariantMap aggression = advice.value("aggression").toMap();
     input.aggressionCandidate = !aggression.isEmpty() &&
         aggression.value("status").toString() != QLatin1String("none");
