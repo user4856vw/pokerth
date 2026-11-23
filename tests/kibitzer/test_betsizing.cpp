@@ -86,7 +86,8 @@ int main() {
     }
     {
         assert(sizeForPotFraction(100,0,1,2)==50);
-        assert(sizeForPotFraction(100,20,1,1)==120);
+        assert(sizeForPotFraction(100,20,1,1)==140); // C + pot-after-call = 20 + 120
+        assert(sizeForPotFraction(120,20,1,2)==90);  // C + half of (120+20)
         assert(sizeForPotFraction(0,20,1,2)==0);
         ActionInput a;
         a.pot=100; a.call=60; a.minRaise=100; a.maxRaise=150;
