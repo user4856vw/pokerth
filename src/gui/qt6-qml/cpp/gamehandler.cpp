@@ -18,6 +18,7 @@
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
+#include "kibitzer_pro_matcher.h"
 #include "kibitzer_tournament_stats.h"
 #include <equitycalculator.h>
 #include <holecardsrange.h>
@@ -35,6 +36,12 @@
 #include <QDateTime>
 #include <QRandomGenerator>
 #include <QSettings>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QSet>
 #include <cmath>
 #include <cstdint>
 #include <QRegularExpression>
@@ -1186,6 +1193,194 @@ QVariantMap GameHandler::kibitzerBetSizingEstimate(
     return result;
 }
 
+
+namespace {
+struct VerifiedPokerDecision {
+    KibitzerProHistory::Situation situation;
+    QVariantMap evidence;
+};
+struct VerifiedPokerCatalog {
+    std::vector<VerifiedPokerDecision> decisions;
+    QString error;
+    int hands = 0;
+};
+
+// Only bundled, pinned, schema-validated, attributed PHH transcriptions.
+// The MIT dataset repository does not give us rights to redistribute broadcast
+// footage; these are compact factual action annotations with original links.
+// Malformed or missing catalog: fail CLOSED, never generate fake examples.
+const VerifiedPokerCatalog &verifiedPokerCatalog() {
+    static const VerifiedPokerCatalog loaded = [] {
+        VerifiedPokerCatalog catalog;
+        QFile file(QStringLiteral(":/resources/verified_wsop23_nlhe.json"));
+        if (!file.open(QIODevice::ReadOnly)) {
+            catalog.error = QStringLiteral("Bundled verified hand catalog cannot be opened.");
+            return catalog;
+        }
+        QJsonParseError parseError;
+        const QJsonDocument doc=QJsonDocument::fromJson(file.readAll(),&parseError);
+        if (parseError.error!=QJsonParseError::NoError || !doc.isObject()) {
+            catalog.error=QStringLiteral("Verified catalog is malformed JSON.");
+            return catalog;
+        }
+        const QJsonObject root=doc.object();
+        const QString pinned=QStringLiteral("e47fbd5816372360bade4de5d712346fe1bb70f6");
+        if (root.value(QStringLiteral("schemaVersion")).toInt()!=1 ||
+            root.value(QStringLiteral("sourceRevision")).toString()!=pinned ||
+            root.value(QStringLiteral("catalogId")).toString() !=
+              QLatin1String("wsop2023-43-day5-nlhe")) {
+            catalog.error=QStringLiteral("Verified catalog revision/schema check failed.");
+            return catalog;
+        }
+        const QJsonArray items=root.value(QStringLiteral("decisions")).toArray();
+        if (items.size()!=88 || root.value(QStringLiteral("hands")).toInt()!=11) {
+            catalog.error=QStringLiteral("Historical catalog record count does not match manifest.");
+            return catalog;
+        }
+        QSet<QString> ids;
+        QSet<int> hands;
+        const QString pathPrefix=QStringLiteral("data/wsop/2023/43/5/");
+        const QString urlPrefix=QStringLiteral("https://github.com/uoftcprg/phh-dataset/blob/")
+            + pinned + QLatin1Char('/');
+        for (const QJsonValue &item : items) {
+            if (!item.isObject()) {catalog.error=QStringLiteral("Invalid historical record.");break;}
+            const QJsonObject o=item.toObject();
+            const QString id=o.value(QStringLiteral("id")).toString();
+            const QString player=o.value(QStringLiteral("player")).toString();
+            const QString path=o.value(QStringLiteral("sourcePath")).toString();
+            const QString url=o.value(QStringLiteral("sourceUrl")).toString();
+            const QString action=o.value(QStringLiteral("action")).toString();
+            const int hand=o.value(QStringLiteral("hand")).toInt(-1);
+            if (id.isEmpty() || ids.contains(id) || player.isEmpty() ||
+                hand<1 || hand>85 || !path.startsWith(pathPrefix) ||
+                !path.endsWith(QLatin1String(".phh")) ||
+                url!=urlPrefix+path ||
+                (action!=QLatin1String("FOLD") &&
+                 action!=QLatin1String("CHECK") &&
+                 action!=QLatin1String("CALL") &&
+                 action!=QLatin1String("BET/RAISE"))) {
+                catalog.error=QStringLiteral("Historical record provenance/action validation failed.");
+                break;
+            }
+            KibitzerProHistory::Situation h;
+            h.street=o.value(QStringLiteral("street")).toString().toStdString();
+            h.position=o.value(QStringLiteral("position")).toString().toStdString();
+            h.playersInHand=o.value(QStringLiteral("playersInHand")).toInt();
+            h.stackBB=o.value(QStringLiteral("stackBB")).toDouble(-1.0);
+            h.potBB=o.value(QStringLiteral("potBB")).toDouble(-1.0);
+            h.toCallBB=o.value(QStringLiteral("toCallBB")).toDouble(-1.0);
+            if (!KibitzerProHistory::setCards(
+                    h,o.value(QStringLiteral("hole")).toString().toStdString(),
+                      o.value(QStringLiteral("board")).toString().toStdString()) ||
+                !KibitzerProHistory::isValid(h)) {
+                catalog.error=QStringLiteral("Historical card or strategic context failed validation.");
+                break;
+            }
+            ids.insert(id);hands.insert(hand);
+            catalog.decisions.push_back({h,o.toVariantMap()});
+        }
+        if (!catalog.error.isEmpty() || catalog.decisions.size()!=88 ||
+            hands.size()!=11) {
+            catalog.decisions.clear();
+            if (catalog.error.isEmpty())
+                catalog.error=QStringLiteral("Historical manifest did not validate.");
+            return catalog;
+        }
+        catalog.hands=hands.size();
+        return catalog;
+    }();
+    return loaded;
+}
+} // namespace
+
+QVariantMap GameHandler::kibitzerHistoricalEvidence(
+    const int hole[2], const int board[5], int boardSize,
+    int opponents, int pot, int price) const
+{
+    QVariantMap result;
+    result["status"]=QStringLiteral("unavailable");
+    result["catalogId"]=QStringLiteral("wsop2023-43-day5-nlhe");
+    result["sourceHands"]=11;
+    result["sourceDecisions"]=88;
+    result["sourceType"]=QStringLiteral("verified historical transcription");
+    result["humanExpertVotes"]=0;
+    const auto &source=verifiedPokerCatalog();
+    if (!source.error.isEmpty()) {
+        result["status"]=QStringLiteral("catalog-error");
+        result["message"]=source.error;
+        return result;
+    }
+    if (!m_game || !isLocalGameRunning() || m_spectating ||
+        !isMyTurnToAct() || opponents<1)
+        return result;
+    const auto hand=m_game->getCurrentHand();
+    const auto seats=hand ? hand->getSeatsList() : nullptr;
+    if (!seats) return result;
+    int button=0,heroCash=-1;
+    for (const auto &p : *seats)
+        if (p->getMyID()==0) {button=p->getMyButton();heroCash=p->getMyCash();break;}
+    const int bb=hand->getSmallBlind()*2;
+    if (bb<=0 || heroCash<0 || pot<=0) return result;
+
+    KibitzerProHistory::Situation now;
+    now.street=boardSize==0?"preflop":boardSize==3?"flop":
+               boardSize==4?"turn":boardSize==5?"river":"unknown";
+    now.position=button==1?(opponents==1?"BTN/SB":"BTN"):
+                 button==2?"SB":button==3?"BB":"OTHER";
+    now.playersInHand=opponents+1;
+    now.stackBB=double(heroCash)/bb;
+    now.potBB=double(pot)/bb;
+    now.toCallBB=double(std::max(0,price))/bb;
+    if (!KibitzerProHistory::fromPokerth(now,hole,board,boardSize) ||
+        !KibitzerProHistory::isValid(now)) {
+        result["status"]=QStringLiteral("invalid-context");
+        return result;
+    }
+    struct Candidate {double score;bool close;QVariantMap record;};
+    std::vector<Candidate> candidates;
+    int closeCount=0;
+    for (const auto &historical : source.decisions) {
+        const auto match=KibitzerProHistory::compare(now,historical.situation);
+        if (!match.eligible) continue;
+        if (match.close) ++closeCount;
+        if (match.score<60) continue;
+        candidates.push_back({match.score,match.close,historical.evidence});
+    }
+    std::sort(candidates.begin(),candidates.end(),
+        [](const Candidate &a,const Candidate &b) {
+            if (a.score!=b.score) return a.score>b.score;
+            return a.record.value("id").toString()<b.record.value("id").toString();
+        });
+    QVariantList rows;
+    for (const auto &cand : candidates) {
+        if (rows.size()>=3) break;
+        QVariantMap row=cand.record;
+        row["similarity"]=cand.score;
+        row["close"]=cand.close;
+        row["comparison"]=cand.close
+            ? QStringLiteral("structural analogue; not proof of correct play")
+            : QStringLiteral("context only — not sufficiently similar");
+        rows.append(row);
+    }
+    result["status"]=closeCount>0
+        ? QStringLiteral("analogues")
+        : QStringLiteral("no-close-match");
+    result["closeCount"]=closeCount;
+    result["eligibleCount"]=static_cast<int>(candidates.size());
+    result["matches"]=rows;
+    result["message"]=closeCount>0
+        ? QStringLiteral("Source-linked historical decisions with comparable observable features.")
+        : QStringLiteral("No sufficiently close verified historical decision. "
+                         "Nearest structural context, if any, is not a recommendation.");
+    result["limitations"]=QStringLiteral(
+        "Eleven televised no-limit hands from a single 2023 WSOP mixed-game final. "
+        "Not a representative sample and not proof of optimal strategy. "
+        "Hole-card class, board texture, position, pot odds, stack depth, and "
+        "heads-up/multiway status are compared; full betting history, opponent "
+        "reads, future betting, ICM and payout pressure are NOT matched. "
+        "No invented votes, frequencies or confidence levels.");
+    return result;
+}
 
 // A small, deliberately read-only teaching aid. Only public cards and the
 // human player's cards are used. Not available in online games.
