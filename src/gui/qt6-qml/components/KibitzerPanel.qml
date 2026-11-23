@@ -56,13 +56,25 @@ Rectangle {
     property bool expanded: false
     property bool openRequested: false
     readonly property bool editingRestore: restoreArea.activeFocus
-    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible
+    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible || mcPopup.visible
     property var rangePlayers: []
     property string rangeFeedback: ""
     property string betFeedback: ""
+    property string mcFeedback: ""
     readonly property bool customRangeActive: advice.rangeStatus === "ready"
     readonly property bool hasAggressionSignal: advice.status === "ready" && advice.aggression
                   && advice.aggression.status !== "none"
+    function applyMonteCarloRuns() {
+        if (!GameTable) return
+        var requested = Math.round(mcRunsSlider.value)
+        if (GameTable.kibitzerSetMonteCarloRuns(requested)) {
+            mcFeedback = ""
+            mcPopup.close()
+            if (myTurnNow) debounce.restart()
+        } else {
+            mcFeedback = "Could not save the setting. Choose 1,000 to 10,000 runs."
+        }
+    }
     function refreshOpponentRanges() {
         rangePlayers = GameTable ? GameTable.kibitzerOpponentRanges : []
     }
@@ -181,9 +193,9 @@ Rectangle {
     readonly property var progress: GameTable ? GameTable.kibitzerProgress : ({"totalHands": 0})
     readonly property bool hasReview: report && report.entries && report.entries.length > 0
     readonly property bool reviewMode: forceReview || !myTurnNow
-    implicitHeight: (expanded && reviewMode) ? Math.min(288, 95 + reviewLines.implicitHeight)
-                    : (expanded ? 190 + (hasAggressionSignal ? 25 : 0)
-                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 125 : 100)
+    implicitHeight: (expanded && reviewMode) ? Math.min(310, 123 + reviewLines.implicitHeight)
+                    : (expanded ? 218 + (hasAggressionSignal ? 25 : 0)
+                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 153 : 128)
                         + (hasAggressionSignal ? 25 : 0))
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
@@ -450,6 +462,9 @@ Rectangle {
         function onCallAmountChanged() { if (kb.myTurnNow) debounce.restart() }
         function onTotalPotChanged() { if (kb.myTurnNow) debounce.restart() }
         function onKibitzerProgressChanged() { kb.refreshHistory() }
+        function onKibitzerMonteCarloRunsChanged() {
+            if (kb.visible && kb.myTurnNow) debounce.restart()
+        }
         function onKibitzerRangesChanged() {
             kb.refreshOpponentRanges()
             if (kb.visible && kb.myTurnNow) debounce.restart()
@@ -526,6 +541,23 @@ Rectangle {
                 Text { anchors.centerIn: parent; text: "×"; color: "white"; font.pixelSize: 18 }
                 MouseArea { anchors.fill: parent; onClicked: kb.closeRequested() }
             }
+        }
+        Rectangle {
+            width: parent.width
+            height: 24
+            radius: 5
+            color: "#293d54"
+            border.color: "#677e9b"
+            Text {
+                anchors.centerIn: parent
+                text: "MONTE CARLO · "
+                    + (GameTable ? GameTable.kibitzerMonteCarloRuns : 2500)
+                    + " runs per scenario  ·  configure ⓘ"
+                color: "#f0d891"
+                font.pixelSize: 11
+                font.bold: true
+            }
+            MouseArea { anchors.fill: parent; onClicked: mcPopup.open() }
         }
         Text {
             visible: !kb.reviewMode
@@ -650,6 +682,117 @@ Rectangle {
             font.pixelSize: 10
             wrapMode: Text.WordWrap
             text: "Only free-check folds are conclusive errors; other flags are hypothetical."
+        }
+    }
+
+    Popup {
+        id: mcPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(8, (parent.width - width) / 2)
+        y: Math.max(8, (parent.height - height) / 2)
+        width: Math.min(485, parent.width - 16)
+        padding: 14
+        onOpened: {
+            mcFeedback = ""
+            mcRunsSlider.value = GameTable ? GameTable.kibitzerMonteCarloRuns : 2500
+        }
+        background: Rectangle {
+            radius: 13; color: "#1c2636"; border.color: "#94a9ca"
+        }
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    color: "#f0d891"; font.pixelSize: 16; font.bold: true
+                    text: "MONTE CARLO · SAMPLES"
+                }
+                TrainerButton { text: "Close"; onClicked: mcPopup.close() }
+            }
+            Text {
+                Layout.fillWidth: true
+                color: "#d6e1f3"; font.pixelSize: 12; wrapMode: Text.WordWrap
+                text: "Runs for each live equity calculation: random baseline, "
+                    + "opponent-range scenario, and both BET EV calling ranges. "
+                    + "More runs reduce Monte Carlo sampling noise, but may make "
+                    + "the Android interface slower during decisions."
+            }
+            Text {
+                Layout.fillWidth: true
+                text: Number(mcRunsSlider.value).toFixed(0) + " runs per simulation"
+                color: "#b9f0d1"; font.pixelSize: 18; font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+            Slider {
+                id: mcRunsSlider
+                Layout.fillWidth: true
+                from: 1000
+                to: 10000
+                stepSize: 500
+                snapMode: Slider.SnapAlways
+                value: 2500
+                background: Rectangle {
+                    x: mcRunsSlider.leftPadding
+                    y: mcRunsSlider.topPadding + mcRunsSlider.availableHeight/2 - height/2
+                    width: mcRunsSlider.availableWidth
+                    height: 6
+                    radius: 3
+                    color: "#576b84"
+                    Rectangle {
+                        width: mcRunsSlider.visualPosition * parent.width
+                        height: parent.height
+                        radius: 3
+                        color: "#91c5ef"
+                    }
+                }
+                handle: Rectangle {
+                    x: mcRunsSlider.leftPadding
+                        + mcRunsSlider.visualPosition * (mcRunsSlider.availableWidth - width)
+                    y: mcRunsSlider.topPadding + mcRunsSlider.availableHeight/2 - height/2
+                    implicitWidth: 22
+                    implicitHeight: 22
+                    radius: 11
+                    color: "#f6f9ff"
+                    border.width: 1
+                    border.color: "#435d7c"
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 5
+                Repeater {
+                    model: [1000, 2500, 5000, 10000]
+                    delegate: TrainerButton {
+                        required property int modelData
+                        Layout.fillWidth: true
+                        text: modelData.toLocaleString(Qt.locale("en_US"))
+                        onClicked: mcRunsSlider.value = modelData
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                color: "#aebfd7"; font.pixelSize: 11; wrapMode: Text.WordWrap
+                text: "1,000–10,000 in steps of 500. Default: 2,500. "
+                    + "Saved for future app launches. Old replay snapshots retain "
+                    + "their original sample counts. No automatic poker actions."
+            }
+            Text {
+                visible: kb.mcFeedback !== ""
+                Layout.fillWidth: true
+                color: "#ffb3b3"; wrapMode: Text.WordWrap; font.pixelSize: 11
+                text: kb.mcFeedback
+            }
+            TrainerButton {
+                Layout.fillWidth: true
+                text: "Apply " + Number(mcRunsSlider.value).toFixed(0) + " runs"
+                onClicked: kb.applyMonteCarloRuns()
+            }
         }
     }
 
