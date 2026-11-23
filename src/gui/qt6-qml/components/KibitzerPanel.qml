@@ -550,6 +550,9 @@ Rectangle {
             border.color: "#677e9b"
             Text {
                 anchors.centerIn: parent
+                width: parent.width - 12
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
                 text: "MONTE CARLO · "
                     + (GameTable ? GameTable.kibitzerMonteCarloRuns : 2500)
                     + " runs per scenario  ·  configure ⓘ"
@@ -971,7 +974,10 @@ Rectangle {
                                         + " = " + kb.signedNumber(modelData.delta,1)
                                         + " chips; two-size MC guard ±"
                                         + Number(modelData.samplingMargin).toFixed(1)
-                                        + " chips. " + modelData.comparison
+                                        + " chips; valid samples "
+                                        + modelData.samples + "/"
+                                        + modelData.samplesRequested + ". "
+                                        + modelData.comparison
                                 }
                             }
                             Rectangle {
