@@ -32,8 +32,8 @@ inline int suit(char c) {
     return index==std::string::npos ? -1 : int(index);
 }
 inline bool setCards(Situation &s,const std::string &hole,const std::string &board) {
-    if (hole.size()!=4 || board.size()!=0 && board.size()!=6 &&
-        board.size()!=8 && board.size()!=10) return false;
+    if (hole.size()!=4 || (board.size()!=0 && board.size()!=6 &&
+        board.size()!=8 && board.size()!=10)) return false;
     s.boardCount=int(board.size())/2;
     for (int i=0;i<2;++i) {
         s.ranks[i]=rank(hole[2*i]);s.suits[i]=suit(hole[2*i+1]);
