@@ -118,7 +118,7 @@ struct ActionResult {
     double referenceEV = 0.0;
     double raiseEV = 0.0;
     double advantage = 0.0;
-    double samplingMargin = 0.0;  // conservative ~95% SE bound; ignores range error
+    double samplingMargin = 0.0;  // two-size ~95% familywise guard; ignores range error
     double conditionalCallPot = 0.0;
     int opponentAdditionalCall = 0;
 };
@@ -161,9 +161,11 @@ inline ActionResult evaluate(const ActionInput &a) {
     out.advantage = out.raiseEV - out.referenceEV;
     const double candidateSe=(1.0-f)*out.conditionalCallPot*a.continuingStdError;
     const double baselineSe=(p+c)*a.baselineStdError;
-    // Conservative sum rather than independence assumption; does NOT reflect
-    // uncertainty in the user-supplied ranges or the fold-response hypothesis.
-    out.samplingMargin = 1.96*(candidateSe+baselineSe);
+    // Conservative sum (no independence assumption) and a 2.25 factor:
+    // an approximate 95% familywise Monte Carlo-only guard when comparing
+    // TWO candidate sizes (Bonferroni normal critical ~2.24). User-supplied
+    // range and behavioral-model uncertainty remains entirely unquantified.
+    out.samplingMargin = 2.25*(candidateSe+baselineSe);
     return out;
 }
 
