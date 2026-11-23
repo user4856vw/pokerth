@@ -596,6 +596,8 @@ private:
 	void saveKibitzerProgress();
 	void rebuildKibitzerProgress();
 	void persistKibitzerHand();
+	QVariantMap kibitzerHistoricalEvidence(const int hole[2], const int board[5],
+		int boardSize, int opponents, int pot, int price) const;
 	QVariantMap kibitzerBetSizingEstimate(const int hole[2], const int board[5],
 		int boardSize, int opponents, int opponentSeat, int opponentCash,
 		bool anyAllIn, int pot, int price, double baselineEquity,
