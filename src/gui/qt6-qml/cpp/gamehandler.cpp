@@ -1658,7 +1658,12 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     event["samples"] = in.samples;
     // Preserve a fully self-contained, non-secret evidence packet. Future releases
     // can reproduce the same random draws without seeing the opponents' cards.
-    event["snapshot"] = estimate;
+    // Phase-B what-if output is recomputed live, not deterministically
+    // replayed by the historical equity v1/v3 snapshot. Do not repeatedly
+    // embed two extra simulations inside every saved decision.
+    QVariantMap replayPacket = estimate;
+    replayPacket.remove("betSizing");
+    event["snapshot"] = replayPacket;
     event["rating"] = rating;
     // An all-in CALL is not a preflop raise.
     event["aggressive"] = chosenAction == QLatin1String("BET/RAISE")
