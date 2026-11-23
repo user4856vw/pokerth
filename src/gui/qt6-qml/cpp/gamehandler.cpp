@@ -1334,6 +1334,21 @@ QVariantMap GameHandler::kibitzerHistoricalEvidence(
     price=std::max(0,std::min(heroCash,bettingRound->getHighestSet()-heroSet));
     const int bb=hand->getSmallBlind()*2;
     if (bb<=0 || pot<=0) return result;
+    // PHH observations do not necessarily identify side-pot eligibility.
+    // Avoid a superficially similar hand when a live player is all-in.
+    if (heroCash<=price) {
+        result["status"]=QStringLiteral("unsupported-all-in");
+        result["message"]=QStringLiteral("Forced all-in: historical structural comparison withheld.");
+        return result;
+    }
+    const auto active=hand->getActivePlayerList();
+    if (active) for (const auto &p : *active) {
+        if (p->getMyAction()==PLAYER_ACTION_ALLIN) {
+            result["status"]=QStringLiteral("unsupported-all-in");
+            result["message"]=QStringLiteral("All-in/side-pot context not modeled by historical matching.");
+            return result;
+        }
+    }
 
     KibitzerProHistory::Situation now;
     now.street=boardSize==0?"preflop":boardSize==3?"flop":
