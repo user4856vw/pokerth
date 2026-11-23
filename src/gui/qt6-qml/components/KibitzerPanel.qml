@@ -1509,6 +1509,42 @@ Rectangle {
                     }
                     Rectangle { width: parent.width; height: 1; color: "#556781" }
                     Text {
+                        width: parent.width
+                        color: "#f0d891"; font.bold: true
+                        font.pixelSize: 13
+                        text: "30-DAY HISTORICAL HAND PILOT"
+                    }
+                    Text {
+                        width: parent.width; color: "#e1ebf7"
+                        font.pixelSize: 12; wrapMode: Text.WordWrap
+                        text: {
+                            var p = kb.progress.historicalPilot || {}
+                            return "Your decisions checked: " + (p.decisionsChecked || 0)
+                                + "\nClose structural examples: " + (p.structuralMatches || 0)
+                                + " · no close match: " + (p.noCloseMatch || 0)
+                                + "\nDistinct historical examples actually matched: "
+                                + (p.distinctHistoricalExamples || 0)
+                                + "\nSame observed action: "
+                                + (p.sameObservedAction || 0) + "/"
+                                + (p.comparableActionPairs || 0)
+                                + " (descriptive, NOT a correctness score)."
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#aebfd7"
+                        font.pixelSize: 11; wrapMode: Text.WordWrap
+                        text: {
+                            var p = kb.progress.historicalPilot || {}
+                            return "Rolling last " + (p.periodDays || 30) + " days"
+                                + (p.firstRecordedAt ? " · first sampled decision: "
+                                  + p.firstRecordedAt : " · no sampled decisions yet")
+                                + ". Corpus: 11 source-verified WSOP no-limit hands, "
+                                + "88 decisions. The trial tracks coverage, not predictive skill. "
+                                + "No data are uploaded."
+                        }
+                    }
+                    Rectangle { width: parent.width; height: 1; color: "#556781" }
+                    Text {
                         color: "#f0d891"; font.bold: true
                         text: "Tournament results · local games"
                     }
