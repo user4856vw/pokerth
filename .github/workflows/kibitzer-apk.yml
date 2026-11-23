@@ -120,6 +120,10 @@ jobs:
           /tmp/kibitzer-review-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
             -I src/gui/qt6-qml/cpp \
+            tests/kibitzer/test_autoplay.cpp -o /tmp/kibitzer-autoplay-test
+          /tmp/kibitzer-autoplay-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp \
             tests/kibitzer/test_training_stats.cpp -o /tmp/kibitzer-stats-test
           /tmp/kibitzer-stats-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic \

@@ -239,6 +239,8 @@ public:
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
 	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
+	// Execute one local-only, auditable autonomous Kibitzer decision.
+	Q_INVOKABLE QVariantMap kibitzerAutoplayStep();
 	int kibitzerMonteCarloRuns() const { return m_kibitzerMonteCarloRuns; }
 	Q_INVOKABLE bool kibitzerSetMonteCarloRuns(int requested);
 	Q_INVOKABLE QVariantList kibitzerOpponentRanges() const;
@@ -681,6 +683,9 @@ private:
 	QHash<int, QString> m_kibitzerManualRanges;
 	QHash<int, QString> m_kibitzerContinueHalfPot;
 	QHash<int, QString> m_kibitzerContinueFullPot;
+	// Only populated during an autonomous action; never persisted except as an event.
+	QVariantMap m_kibitzerAutoSnapshot;
+	QVariantMap m_kibitzerAutoMetadata;
 	QVariantMap m_kibitzerProgress;
 	QVariantList m_kibitzerHistory;
 	QVariantList m_kibitzerTournaments;

@@ -42,6 +42,7 @@ Rectangle {
     // auto action) lives in the GameActionBar; here only as a forwarding for
     // the keyboard shortcuts.
     function applyPlayingMode(index) {
+        if (autoTrialEnabled) return
         if (actionBar)
             actionBar.applyPlayingMode(index)
     }
@@ -148,6 +149,107 @@ Rectangle {
         }
     }
 
+    // Local-only, user-armed "eat your own food" trial. The policy executes
+    // only in the C++ local-game handler, never through network actions.
+    property bool autoTrialEnabled: false
+    property double autoTrialDeadline: 0
+    property int autoTrialTournaments: 0
+    property int autoTrialDecisions: 0
+    property int autoTrialProvisional: 0
+    property string autoTrialLastReason: ""
+    function toggleAutoTrial() {
+        if (autoTrialEnabled) {
+            stopAutoTrial()
+            return
+        }
+        if (!GameTable || !GameTable.isLocalGameRunning() || spectating)
+            return
+        // Neither preselection nor a pre-existing check/call auto mode may
+        // compete with the separate auditable advice driver.
+        actionBar.applyPlayingMode(0)
+        actionBar.preAction = ""
+        autoTrialTournaments = 0
+        autoTrialDecisions = 0
+        autoTrialProvisional = 0
+        autoTrialLastReason = ""
+        autoTrialDeadline = Date.now() + 8 * 60 * 60 * 1000
+        autoTrialEnabled = true
+        scheduleAutoTrialStep()
+    }
+    function stopAutoTrial() {
+        autoTrialEnabled = false
+        autoTrialStepTimer.stop()
+        autoTrialRestartTimer.stop()
+    }
+    function autoTrialInBounds() {
+        if (!autoTrialEnabled)
+            return false
+        if (Date.now() >= autoTrialDeadline || autoTrialTournaments >= 100) {
+            stopAutoTrial()
+            return false
+        }
+        if (!GameTable || !GameTable.isLocalGameRunning() || spectating) {
+            stopAutoTrial()
+            return false
+        }
+        return true
+    }
+    function scheduleAutoTrialStep() {
+        if (!autoTrialInBounds()) return
+        if (GameTable.waitingForNextHand || GameTable.myTurn ||
+            GameTable.awaitingMyAction)
+            autoTrialStepTimer.restart()
+    }
+    function runAutoTrialStep() {
+        if (!autoTrialInBounds()) return
+        if (GameTable.waitingForNextHand) {
+            GameTable.continueToNextHand()
+            return
+        }
+        if (!GameTable.myTurn && !GameTable.awaitingMyAction) return
+        var result = GameTable.kibitzerAutoplayStep()
+        if (result.executed) {
+            autoTrialDecisions += 1
+            if (result.provisional) autoTrialProvisional += 1
+            autoTrialLastReason = result.reason || ""
+        }
+        // A call discarded because the required amount increased will be
+        // retried on the next actionRejected/turn-state signal, not forced.
+    }
+    Timer {
+        id: autoTrialStepTimer
+        interval: 260
+        repeat: false
+        onTriggered: gamePage.runAutoTrialStep()
+    }
+    Timer {
+        id: autoTrialRestartTimer
+        interval: 700
+        repeat: false
+        onTriggered: {
+            if (gamePage.autoTrialInBounds()) {
+                gameOverPopup.close()
+                GameTable.startLocalGame()
+                gamePage.scheduleAutoTrialStep()
+            }
+        }
+    }
+    Timer {
+        interval: 60000
+        repeat: true
+        running: gamePage.autoTrialEnabled
+        onTriggered: gamePage.autoTrialInBounds()
+    }
+    Connections {
+        target: GameTable
+        function onMeInActionTriggered() { gamePage.scheduleAutoTrialStep() }
+        function onMyTurnChanged() { gamePage.scheduleAutoTrialStep() }
+        function onAwaitingMyActionChanged() { gamePage.scheduleAutoTrialStep() }
+        function onWaitingForNextHandChanged() { gamePage.scheduleAutoTrialStep() }
+        function onActionRejected() { gamePage.scheduleAutoTrialStep() }
+    }
+    Component.onDestruction: stopAutoTrial()
+
     // ── Emoji reactions (a port from the web client) ─────────────────────────
     // Sending goes through the game chat with the web client convention
     // "/emoji 🎉"; received reactions are intercepted by GameHandler::appendChat and
@@ -251,6 +353,7 @@ Rectangle {
         ? SettingsManager.readConfigInt("AlternateFKeysUserActionMode") !== 0 : false
 
     function fKeyAction(which) {
+        if (autoTrialEnabled) return
         if (actionBar)
             actionBar.clickAction(which)
     }
@@ -1638,6 +1741,43 @@ Rectangle {
                 ToolTip.text: qsTr("Kibitzer (K)")
             }
 
+            // The trial's separate switch is deliberately visible only in
+            // local play. A second tap interrupts it immediately.
+            Button {
+                id: autoTrialToggle
+                z: 226
+                visible: GameTable && GameTable.isLocalGameRunning() && !tableZone.spectating
+                width: 52
+                height: 38
+                text: gamePage.autoTrialEnabled ? "STOP" : "AUTO"
+                font.pixelSize: 11
+                font.bold: true
+                contentItem: Text {
+                    text: autoTrialToggle.text
+                    font: autoTrialToggle.font
+                    color: "#f6f9ff"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 7
+                    color: gamePage.autoTrialEnabled ? "#9e3939" : "#304961"
+                    border.color: gamePage.autoTrialEnabled ? "#f1a3a3" : "#93a9c7"
+                    border.width: 1
+                }
+                anchors.top: parent.top
+                anchors.topMargin: 8
+                anchors.right: kibitzerToggle.left
+                anchors.rightMargin: 8
+                onClicked: gamePage.toggleAutoTrial()
+                ToolTip.visible: hovered
+                ToolTip.text: gamePage.autoTrialEnabled
+                    ? "Self-play: " + gamePage.autoTrialDecisions + " decisions ("
+                      + gamePage.autoTrialProvisional + " provisional), "
+                      + gamePage.autoTrialTournaments + " tournaments"
+                    : "Local self-play for up to 8 hours or 100 tournaments"
+            }
+
             // The adviser is only visible on request. History is always recorded
             // by the C++ game handler, independently of this QML component.
             KibitzerPanel {
@@ -1783,6 +1923,7 @@ Rectangle {
         // room that is freed benefits the table (Layout.fillHeight above).
         GameActionBar {
             id: actionBar
+            enabled: !gamePage.autoTrialEnabled
             visible: !tableZone.spectating
             Layout.fillWidth: true
             Layout.preferredHeight: implicitHeight
@@ -2049,6 +2190,13 @@ Rectangle {
     Connections {
         target: GameTable
         function onLocalGameFinished(winnerName, winnerSeatId) {
+            if (gamePage.autoTrialEnabled) {
+                gamePage.autoTrialTournaments += 1
+                if (gamePage.autoTrialInBounds()) {
+                    autoTrialRestartTimer.restart()
+                    return
+                }
+            }
             gameOverPopup.winnerName = winnerName
             gameOverPopup.humanWon = (winnerSeatId === 0)
             gameOverPopup.open()

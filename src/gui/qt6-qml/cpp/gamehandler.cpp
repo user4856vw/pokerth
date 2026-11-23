@@ -15,6 +15,7 @@
 #include <berointerface.h>
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
+#include "kibitzer_autoplay_logic.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -1412,6 +1413,81 @@ QVariantMap GameHandler::kibitzerHistoricalEvidence(
 
 // A small, deliberately read-only teaching aid. Only public cards and the
 // human player's cards are used. Not available in online games.
+// Test-only local autoplay. The choice is made from the same read-only
+// Kibitzer packet that a human would see; it is cached so the recorder does
+// not silently run Monte Carlo again with a different seed.
+QVariantMap GameHandler::kibitzerAutoplayStep()
+{
+    QVariantMap response;
+    response["executed"] = false;
+    if (!m_game || !m_session || m_spectating || m_localGameOver ||
+        m_waitingForNextHand || !isLocalGameRunning() ||
+        !isMyTurnToAct()) {
+        response["reason"] = QStringLiteral("not-an-active-local-turn");
+        return response;
+    }
+
+    const QVariantMap advice = kibitzerAdvice();
+    KibitzerAutoplay::Input input;
+    input.adviceReady = advice.value("status").toString() == QLatin1String("ready");
+    const QString rangeStatus = advice.value("rangeStatus").toString();
+    input.rangesUsable = rangeStatus == QLatin1String("baseline") ||
+                         rangeStatus == QLatin1String("ready");
+    input.price = std::max(0, m_callAmount);
+    input.minRaise = m_minRaiseAmount;
+    input.maxRaise = m_maxRaiseAmount;
+    input.equity = advice.value("effectiveEquity").toDouble();
+    input.required = advice.value("required").toDouble();
+    input.margin = advice.value("comparisonMargin").toDouble();
+    const QVariantMap aggression = advice.value("aggression").toMap();
+    input.aggressionCandidate = !aggression.isEmpty() &&
+        aggression.value("status").toString() != QLatin1String("none");
+    const QVariantMap sizing = advice.value("betSizing").toMap();
+    input.modeledRaiseEdge =
+        sizing.value("status").toString() == QLatin1String("ready") &&
+        sizing.value("modelVerdict").toString() == QLatin1String("raise-candidate");
+    input.modeledRaiseSize = sizing.value("best").toMap().value("size").toInt();
+    const auto d = KibitzerAutoplay::choose(input);
+
+    QString move;
+    switch (d.action) {
+    case KibitzerAutoplay::Action::Check: move = QStringLiteral("CHECK"); break;
+    case KibitzerAutoplay::Action::Call:  move = QStringLiteral("CALL"); break;
+    case KibitzerAutoplay::Action::Fold:  move = QStringLiteral("FOLD"); break;
+    case KibitzerAutoplay::Action::Raise: move = QStringLiteral("BET/RAISE"); break;
+    }
+    m_kibitzerAutoSnapshot = advice;
+    m_kibitzerAutoMetadata = QVariantMap{
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v1")},
+        {QStringLiteral("choice"), move},
+        {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
+        {QStringLiteral("provisional"), d.provisional},
+        {QStringLiteral("councilHeadline"),
+            advice.value("council").toMap().value("headline")},
+        {QStringLiteral("councilStance"),
+            advice.value("council").toMap().value("stance")},
+        {QStringLiteral("callPrice"), input.price}
+    };
+
+    bool executed = true;
+    switch (d.action) {
+    case KibitzerAutoplay::Action::Check:
+    case KibitzerAutoplay::Action::Call:
+        // A racing raise must NEVER silently turn a check into a costly call.
+        executed = call(input.price);
+        break;
+    case KibitzerAutoplay::Action::Fold: fold(); break;
+    case KibitzerAutoplay::Action::Raise: raise(d.amount); break;
+    }
+    m_kibitzerAutoMetadata.clear();
+    m_kibitzerAutoSnapshot.clear();
+    response["executed"] = executed;
+    response["choice"] = move;
+    response["provisional"] = d.provisional;
+    response["reason"] = QString::fromLatin1(d.reason);
+    return response;
+}
+
 QVariantMap GameHandler::kibitzerAdvice() const
 {
     QVariantMap out;
@@ -1962,7 +2038,8 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     const int price = std::max(0, std::min(heroPlayer->getMyCash(),
                                          bero->getHighestSet() - heroPlayer->getMySet()));
     const int pot = std::max(0, board->getPot() + board->getSets());
-    const QVariantMap estimate = kibitzerAdvice();
+    const QVariantMap estimate = m_kibitzerAutoMetadata.isEmpty()
+        ? kibitzerAdvice() : m_kibitzerAutoSnapshot;
     bool hasAllIn = false;
     auto active = hand->getActivePlayerList();
     if (active) {
@@ -2007,6 +2084,8 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
 
     QVariantMap event;
     event["phase"] = m_phaseText;
+    if (!m_kibitzerAutoMetadata.isEmpty())
+        event["autoplay"] = m_kibitzerAutoMetadata;
     event["cards"] = estimate.value("hero", QStringLiteral("?"));
     event["action"] = chosenAction;
     event["amount"] = amount;
