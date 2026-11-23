@@ -133,6 +133,46 @@ Rectangle {
             return "BET EV: configure opponent responses ⓘ"
         return "BET EV: " + (m.message || "no modeled size") + " ⓘ"
     }
+
+    function councilExplanation(panel) {
+        var c = panel || {}
+        if (!c.lenses || !c.lenses.length)
+            return "No comparable model checks are available for this decision."
+        var body = "MODELED STRATEGY CHECKS — NOT ACTUAL PRO OPINIONS\n\n"
+            + c.headline + ".\n"
+            + "Comparable tests: " + c.comparable
+            + "; agreeing: " + c.supporting
+            + "; model conflicts: " + c.conflicting + ".\n"
+            + (c.rangeSensitive
+                ? "WARNING: the random and manually assigned ranges disagree on the priced decision.\n"
+                : "")
+        for (var i=0; i<c.lenses.length; ++i) {
+            var lens = c.lenses[i]
+            body += "\n" + lens.name + " — " + lens.stance
+                + (lens.comparable ? " [comparable]" : " [not a decision vote]")
+                + "\n" + lens.reason + "\n"
+        }
+        var e = c.evidence || {}
+        body += "\nREPRODUCIBLE INPUTS\n"
+            + "Random equity: " + fmt(100 * Number(e.randomEquity || 0))
+            + "; assumed-range equity: " + fmt(100 * Number(e.judgedEquity || 0))
+            + "; pot-odds threshold: " + fmt(100 * Number(e.requiredEquity || 0))
+            + "; comparison margin: " + fmt(100 * Number(e.comparisonMargin || 0))
+            + "; call price: " + (e.price || 0) + " chips.\n"
+            + "Your range assumptions active: " + (e.customRanges ? "yes" : "no")
+            + "; bet-size EV status: " + (e.betEvStatus || "unknown")
+            + "; bet-size EV verdict: " + (e.betEvVerdict || "not calculated")
+            + "; Stage-A pressure: " + (e.aggressionSignal || "none") + ".\n"
+            + "\n" + c.caveat
+            + "\n\nNo real professional players have been consulted. "
+            + "These are related heuristic checks, not independent votes or a GTO solution. "
+            + "Tap the equity and BET EV rows to inspect the underlying calculations."
+        return body
+    }
+    function explainCouncil() {
+        kb.explain("Expert-style strategy council — modeled evidence",
+                   kb.councilExplanation(kb.advice.council))
+    }
     function describeRangeScenario() {
         var a = advice
         if (a.status !== "ready") {
@@ -194,9 +234,9 @@ Rectangle {
     readonly property bool hasReview: report && report.entries && report.entries.length > 0
     readonly property bool reviewMode: forceReview || !myTurnNow
     implicitHeight: (expanded && reviewMode) ? Math.min(310, 123 + reviewLines.implicitHeight)
-                    : (expanded ? 218 + (hasAggressionSignal ? 25 : 0)
+                    : (expanded ? 238 + (hasAggressionSignal ? 25 : 0)
                       : (myTurnNow && advice.rangeStatus !== "baseline" ? 153 : 128)
-                        + (hasAggressionSignal ? 25 : 0))
+                        + (hasAggressionSignal ? 25 : 0) + (!reviewMode ? 20 : 0))
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
     function explain(title, body, decision) {
@@ -400,6 +440,9 @@ Rectangle {
                 body += "Those saved ranges, not the current editor settings, "
                      + "are used during replay.\n"
             }
+            if (a.council && a.council.lenses)
+                body += "\nSTRATEGY COUNCIL SAVED WITH THIS DECISION:\n"
+                      + kb.councilExplanation(a.council) + "\n"
             body += "\nSnapshot: hero " + kb.cards(a.heroCodes)
                  + "; board " + kb.cards(a.boardCodes)
                  + "; opponents " + a.opponents + "; phase " + a.phase + ".\n"
@@ -622,6 +665,18 @@ Rectangle {
             elide: Text.ElideRight
             text: kb.betEvSummary()
             MouseArea { anchors.fill: parent; onClicked: kb.openBetPopup() }
+        }
+        Text {
+            visible: !kb.reviewMode && kb.advice.status === "ready"
+            width: parent.width
+            color: (kb.advice.council && kb.advice.council.status === "aligned")
+                   ? "#b9f0d1" : "#f0d891"
+            font.pixelSize: 11
+            font.bold: true
+            elide: Text.ElideRight
+            text: "STRATEGY COUNCIL · "
+                + (kb.advice.council ? kb.advice.council.headline : "no model") + " ⓘ"
+            MouseArea { anchors.fill: parent; onClicked: kb.explainCouncil() }
         }
         Text {
             visible: !kb.reviewMode && kb.hasAggressionSignal
