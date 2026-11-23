@@ -1316,11 +1316,23 @@ QVariantMap GameHandler::kibitzerHistoricalEvidence(
     const auto hand=m_game->getCurrentHand();
     const auto seats=hand ? hand->getSeatsList() : nullptr;
     if (!seats) return result;
-    int button=0,heroCash=-1;
+    int button=0,heroCash=-1,heroSet=0;
     for (const auto &p : *seats)
-        if (p->getMyID()==0) {button=p->getMyButton();heroCash=p->getMyCash();break;}
+        if (p->getMyID()==0) {
+            button=p->getMyButton();
+            heroCash=p->getMyCash();
+            heroSet=p->getMySet();
+            break;
+        }
+    // Derive chip amounts from the engine at the decision, rather than
+    // relying on QML refresh order (m_totalPot/m_callAmount can be stale).
+    const auto boardState=hand->getBoard();
+    const auto bettingRound=hand->getCurrentBeRo();
+    if (heroCash<0 || !boardState || !bettingRound) return result;
+    pot=std::max(0,boardState->getPot()+boardState->getSets());
+    price=std::max(0,std::min(heroCash,bettingRound->getHighestSet()-heroSet));
     const int bb=hand->getSmallBlind()*2;
-    if (bb<=0 || heroCash<0 || pot<=0) return result;
+    if (bb<=0 || pot<=0) return result;
 
     KibitzerProHistory::Situation now;
     now.street=boardSize==0?"preflop":boardSize==3?"flop":
