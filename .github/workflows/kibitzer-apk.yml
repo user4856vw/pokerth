@@ -135,6 +135,12 @@ jobs:
             -I src/gui/qt6-qml/cpp \
             tests/kibitzer/test_tournament_stats.cpp -o /tmp/kibitzer-tournament-test
           /tmp/kibitzer-tournament-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp -I src/engine/local_engine \
+            tests/kibitzer/test_betsizing.cpp \
+            src/engine/local_engine/holecardsrange.cpp \
+            -o /tmp/kibitzer-betsizing-test
+          /tmp/kibitzer-betsizing-test
       - name: Build signed APK
         run: |
           export VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
