@@ -23,7 +23,9 @@ export regularly rather than assuming unlimited month-long retention.
 * An explicitly modeled BET EV raise edge with a **legal** best size → raise.
   This is conditional on the manually supplied opponent response ranges.
 * Otherwise, free check → check; favorable call beyond the comparison margin
-  → call; unfavorable call beyond it → fold.
+  → call; unfavorable call beyond it → fold. These are **provisional** if
+  Council has not reached that explicit combined stance. A single pot-odds
+  lens passing is not silently promoted into Council consensus.
 * If Council is undecided, the direct equity-versus-price comparison breaks the
   tie. If the model is unavailable or an assigned range cannot be evaluated,
   the safe fallback is check when free, otherwise fold.
