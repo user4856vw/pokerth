@@ -53,6 +53,10 @@ int main() {
         closeTo(v.raiseEV,93);
         closeTo(v.advantage,33);
         assert(v.opponentAdditionalCall==50);
+        a.baselineStdError=.01; a.continuingStdError=.02;
+        v=evaluate(a);
+        closeTo(v.samplingMargin,2.25*(.7*200*.02 + 100*.01));
+        a.baselineStdError=0; a.continuingStdError=0;
         // With NO fold equity and weaker calling equity, betting can be worse.
         a.foldProbability=0; a.continuingEquity=.2;
         v=evaluate(a);
