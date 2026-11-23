@@ -141,6 +141,10 @@ jobs:
             src/engine/local_engine/holecardsrange.cpp \
             -o /tmp/kibitzer-betsizing-test
           /tmp/kibitzer-betsizing-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp \
+            tests/kibitzer/test_mc_config.cpp -o /tmp/kibitzer-mc-config-test
+          /tmp/kibitzer-mc-config-test
       - name: Build signed APK
         run: |
           export VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
