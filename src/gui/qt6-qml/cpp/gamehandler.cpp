@@ -960,9 +960,9 @@ QVariantMap GameHandler::kibitzerBetSizingEstimate(
     result["pot"] = pot;
     result["price"] = price;
     result["referenceEV"] = price > 0
-        ? std::max(0.0, baselineEquity*(pot+price)-price)
+        ? std::max(0.0, baselineEquity*(double(pot)+price)-price)
         : baselineEquity*pot;
-    result["callOrCheckEV"] = baselineEquity*(pot+price)-price;
+    result["callOrCheckEV"] = baselineEquity*(double(pot)+price)-price;
     result["baselineAction"] = price == 0 ? QStringLiteral("CHECK")
         : (result.value("callOrCheckEV").toDouble() > 0
             ? QStringLiteral("CALL") : QStringLiteral("FOLD"));
