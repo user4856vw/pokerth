@@ -1497,6 +1497,10 @@ QVariantMap GameHandler::kibitzerAdvice() const
     out["phase"] = m_phaseText;
     out["canRaise"] = m_maxRaiseAmount > 0;
     out["activeRanges"] = rangeRows;
+    // Real recorded WSOP actions, completely independent of opponent range
+    // assumptions. Never call this a professional vote or a GTO benchmark.
+    out["historical"] = kibitzerHistoricalEvidence(
+        hole,board,boardSize,opponents,pot,price);
     out["rangeStatus"] = anyCustom ? QStringLiteral("pending") : QStringLiteral("baseline");
     out["effectiveEquity"] = equity;
     out["effectiveSamples"] = estimate.samples;
@@ -1990,7 +1994,32 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     // embed two extra simulations inside every saved decision.
     QVariantMap replayPacket = estimate;
     replayPacket.remove("betSizing");
+    replayPacket.remove("historical");
     event["snapshot"] = replayPacket;
+    // Lightweight 30-day retrieval audit, captured before showing the future
+    // cards or evaluating the hand's outcome. No personal data leaves device.
+    const QVariantMap seen=estimate.value("historical").toMap();
+    if (seen.value("status").toString()==QLatin1String("analogues") ||
+        seen.value("status").toString()==QLatin1String("no-close-match")) {
+        const QVariantList examples=seen.value("matches").toList();
+        const QVariantMap first=examples.isEmpty()?QVariantMap():examples.first().toMap();
+        const bool comparable=first.value("close").toBool();
+        const QString actual=chosenAction==QLatin1String("CHECK/CALL")
+            ? (price==0?QStringLiteral("CHECK"):QStringLiteral("CALL"))
+            : chosenAction;
+        const QString observed=first.value("action").toString();
+        event["historicalEvidence"]=QVariantMap{
+            {QStringLiteral("catalogId"), seen.value("catalogId")},
+            {QStringLiteral("closeMatch"), comparable},
+            {QStringLiteral("matchId"), first.value("id")},
+            {QStringLiteral("matchAction"), observed},
+            {QStringLiteral("similarity"), first.value("similarity")},
+            {QStringLiteral("sameAction"), comparable &&
+                 observed==actual},
+            {QStringLiteral("actionComparable"), comparable &&
+                 actual!=QLatin1String("ALL-IN")}
+        };
+    }
     event["rating"] = rating;
     // An all-in CALL is not a preflop raise.
     event["aggressive"] = chosenAction == QLatin1String("BET/RAISE")
