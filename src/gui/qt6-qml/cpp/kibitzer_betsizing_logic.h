@@ -169,7 +169,10 @@ inline ActionResult evaluate(const ActionInput &a) {
 
 inline int sizeForPotFraction(int pot, int call, int numerator, int denominator) {
     if (pot <= 0 || call < 0 || numerator <= 0 || denominator <= 0) return 0;
-    const std::int64_t add=(std::int64_t(pot)*numerator + denominator/2)/denominator;
+    // Standard sizing while facing a bet: first match the C-chip call,
+    // then bet r*(P+C), i.e. a fraction of the pot *after* the call.
+    const std::int64_t afterCall=std::int64_t(pot)+call;
+    const std::int64_t add=(afterCall*numerator + denominator/2)/denominator;
     const std::int64_t spend=std::int64_t(call)+add;
     return spend>0 && spend<=std::numeric_limits<int>::max() ? int(spend) : 0;
 }
