@@ -113,7 +113,9 @@ Rectangle {
                 return "BET EV: " + r.label + " · spend " + r.size
                     + " · advantage +" + Number(r.delta || 0).toFixed(1)
                     + " chips ⓘ"
-            return "BET EV: no robust modeled raise edge · compare sizes ⓘ"
+            if (m.modelVerdict === "passive-favored")
+                return "BET EV: " + m.baselineAction + " modeled ahead · inspect ⓘ"
+            return "BET EV: close under sampling error · compare sizes ⓘ"
         }
         if (m.status === "unconfigured")
             return "BET EV: configure opponent responses ⓘ"
@@ -841,8 +843,11 @@ Rectangle {
                             var m = kb.advice.betSizing || {}
                             if (m.status !== "ready") return ""
                             if (!m.modeledRaiseEdge)
-                                return "No clear raise advantage from these two sizes "
-                                    + "after Monte Carlo sampling uncertainty."
+                                return m.modelVerdict === "passive-favored"
+                                    ? m.baselineAction + " is modeled ahead of both tested raises "
+                                        + "under your response assumptions."
+                                    : "No clear raise advantage from these two sizes "
+                                        + "after Monte Carlo sampling uncertainty."
                             return "MODELED BET/RAISE CANDIDATE: "
                                 + m.best.label + " · spend " + m.best.size
                                 + " chips · modeled advantage "
