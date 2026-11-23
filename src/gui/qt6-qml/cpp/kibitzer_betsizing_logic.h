@@ -77,6 +77,26 @@ inline ResponseCounts countResponses(const HoleCardsRange *prior,
     return out;
 }
 
+// Useful zero-fold benchmark: ANY means "the opponent calls with the
+// entire initial range", not "discard the user's prior and sample random".
+inline ResponseCounts countAllResponses(const HoleCardsRange *prior,
+                                        const int hero[2], const int board[5],
+                                        int boardSize) {
+    ResponseCounts out;
+    std::uint64_t blockers=0;
+    if (!validKnownCards(hero,board,boardSize,blockers)) return out;
+    for (int a=0;a<51;++a) {
+        if (blockers & (1ULL<<a)) continue;
+        for (int b=a+1;b<52;++b) {
+            if (blockers & (1ULL<<b)) continue;
+            if (!prior || prior->contains(a,b)) ++out.prior;
+        }
+    }
+    out.continueCombos=out.prior;
+    out.valid=out.prior>0;
+    return out; // foldProbability remains exactly zero
+}
+
 struct ActionInput {
     int pot = 0;             // pre-decision pot, including opponents' prior wagers
     int call = 0;            // amount hero must spend merely to call
