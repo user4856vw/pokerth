@@ -122,3 +122,71 @@ is accepted.
    pot-after-call sizing convention from the detail panel.
 7. Verify that Stage A recommendations, tournament statistics, archive
    backup and seeded equity replays continue to work.
+
+
+---
+
+## Strategy council (modeled expert-style cross-check, v1)
+
+The live Kibitzer adds a tappable **STRATEGY COUNCIL** result under
+BET EV. It reports either `MODELS ALIGN: <action>`,
+`MODEL DISAGREEMENT`, or `INSUFFICIENT COMPARABLE MODELS`.
+Tap it for four lenses and their detailed assumptions:
+
+1. **Pot-odds discipline:** compares conditional showdown equity with
+   `call / (pot + call)`, with the displayed caution margin. With a free
+   check, `CHECK` is merely a cost-free fallback, *not* proven optimal.
+2. **Assumption stress test:** with manually assigned ranges on a priced
+   decision, compares the random-opponent baseline against conditioned
+   equity. This check counts only if both clear their margins on the
+   same action. If they disagree, it explicitly reports sensitivity.
+3. **Value and pressure scout:** surfaces the existing Stage-A premium,
+   value or semibluff opportunity to *study* a raise. This is never
+   counted as an actionable `RAISE` vote: no opponent fold/call EV has
+   been computed.
+4. **Response-aware chip EV:** only when the user configures opponent
+   continuing ranges and Stage B produces a supported result. This
+   lens can prefer a modeled bet/raise, favor the passive reference, or
+   abstain when results remain within simulation uncertainty.
+
+The council calls a result **aligned** only when two or more *comparable*
+checks select exactly the same action **and no comparable check
+contradicts it**. It never treats a majority as unanimity. The response
+model is heads-up only, and its two preset sizes are not a full
+optimization.
+
+### Critical provenance limitation
+
+This is **not a survey or consensus of named world-class professional
+players**. The four lenses are transparent deterministic heuristics;
+some reuse the same sampled equity and so are **not independent expert
+opinions**. No actual poker pro has been consulted, no player-specific
+strategy has been reproduced, and no game-theoretic-optimal (GTO)
+solver is involved. Actual expert consensus would require verifiable
+hand-by-hand expert annotations or a calibrated solver dataset, with
+provenance and coverage of different positions, stacks, action
+sequences, and board textures. The UI makes this distinction explicit.
+
+The full council output and inputs are saved with each new decision
+snapshot, so they remain inspectable even when current ranges change.
+Existing `REPLAY CALCULATION` checks seeded equities, **not** complete
+Stage-B EV or the council's underlying hypotheses.
+
+### Android acceptance checks
+
+- With no manual ranges and no Stage-B response model, the council
+  must display **INSUFFICIENT COMPARABLE MODELS**, not fabricated agreement.
+- With both equity hypotheses safely favoring a priced call and the
+  response model unavailable, the council must show **MODELS ALIGN: CALL**;
+  the detail must explain that the stress check reuses inputs.
+- When assigned-range equity favors a call but the random baseline
+  clearly favors a fold, display the sensitivity warning and no
+  model-wide agreement without further evidence.
+- When Stage B favors raising while the pot-odds check favors calling,
+  display **MODEL DISAGREEMENT**, even if two related passive checks agree.
+- A Stage-A draw candidate must appear as **STUDY A RAISE**, but it
+  cannot itself create a raise consensus.
+- Tapping the row must display the equity values, threshold, margin,
+  input assumption statuses, per-lens reasoning and source limitation.
+- New saved decisions expose their original council calculations under
+  the decision-detail view; old history lacking council data remains valid.
