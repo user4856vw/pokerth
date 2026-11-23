@@ -56,7 +56,7 @@ Rectangle {
     property bool expanded: false
     property bool openRequested: false
     readonly property bool editingRestore: restoreArea.activeFocus
-    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible || mcPopup.visible
+    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible || mcPopup.visible || historyPopup.visible
     property var rangePlayers: []
     property string rangeFeedback: ""
     property string betFeedback: ""
@@ -169,8 +169,17 @@ Rectangle {
         return body
     }
     function explainCouncil() {
-        kb.explain("Expert-style strategy council — modeled evidence",
+        kb.explain("Model cross-check — correlated analytical evidence",
                    kb.councilExplanation(kb.advice.council))
+    }
+    function historicalHeadline() {
+        var h = kb.advice.historical || {}
+        if (!kb.myTurnNow) return "PRO HANDS · inspect during a decision"
+        if (h.status === "analogues")
+            return "PRO HANDS · " + h.closeCount + " structural analogues ⓘ"
+        if (h.status === "no-close-match")
+            return "PRO HANDS · no close match ⓘ"
+        return "PRO HANDS · " + (h.message || "unavailable") + " ⓘ"
     }
     function describeRangeScenario() {
         var a = advice
@@ -584,25 +593,45 @@ Rectangle {
                 MouseArea { anchors.fill: parent; onClicked: kb.closeRequested() }
             }
         }
-        Rectangle {
+        Row {
             width: parent.width
-            height: 24
-            radius: 5
-            color: "#293d54"
-            border.color: "#677e9b"
-            Text {
-                anchors.centerIn: parent
-                width: parent.width - 12
-                horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
-                text: "MONTE CARLO · "
-                    + (GameTable ? GameTable.kibitzerMonteCarloRuns : 2500)
-                    + " runs per scenario  ·  configure ⓘ"
-                color: "#f0d891"
-                font.pixelSize: 11
-                font.bold: true
+            height: 25
+            spacing: 6
+            Rectangle {
+                width: (parent.width-6)/2
+                height: 24
+                radius: 5
+                color: "#293d54"
+                border.color: "#677e9b"
+                Text {
+                    anchors.centerIn: parent
+                    width: parent.width - 8
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: "MC · " + (GameTable ? GameTable.kibitzerMonteCarloRuns : 2500)
+                          + " runs ⓘ"
+                    color: "#f0d891"
+                    font.pixelSize: 11; font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: mcPopup.open() }
             }
-            MouseArea { anchors.fill: parent; onClicked: mcPopup.open() }
+            Rectangle {
+                width: (parent.width-6)/2
+                height: 24
+                radius: 5
+                color: "#293d54"
+                border.color: "#91a7c9"
+                Text {
+                    anchors.centerIn: parent
+                    width: parent.width-8
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: "HISTORICAL PRO HANDS ⓘ"
+                    color: "#b9f0d1"
+                    font.pixelSize: 11; font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: historyPopup.open() }
+            }
         }
         Text {
             visible: !kb.reviewMode
@@ -674,7 +703,7 @@ Rectangle {
             font.pixelSize: 11
             font.bold: true
             elide: Text.ElideRight
-            text: "MODEL COUNCIL · "
+            text: "MODEL CROSS-CHECK · "
                 + (kb.advice.council ? kb.advice.council.headline : "no model") + " ⓘ"
             MouseArea { anchors.fill: parent; onClicked: kb.explainCouncil() }
         }
@@ -740,6 +769,134 @@ Rectangle {
             font.pixelSize: 10
             wrapMode: Text.WordWrap
             text: "Only free-check folds are conclusive errors; other flags are hypothetical."
+        }
+    }
+
+    Popup {
+        id: historyPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(8, (parent.width - width) / 2)
+        y: Math.max(8, (parent.height - height) / 2)
+        width: Math.min(575, parent.width - 16)
+        height: Math.min(705, parent.height - 16)
+        padding: 12
+        background: Rectangle { radius: 13; color: "#1c2636"; border.color: "#94a9ca" }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 9
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: "HISTORICAL PRO DECISIONS"
+                    color: "#f0d891"
+                    font.bold: true; font.pixelSize: 15
+                    wrapMode: Text.WordWrap
+                }
+                TrainerButton { text: "Close"; onClicked: historyPopup.close() }
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+                Column {
+                    width: parent.width
+                    spacing: 11
+                    Text {
+                        width: parent.width
+                        color: "#b9f0d1"
+                        font.pixelSize: 13; font.bold: true; wrapMode: Text.WordWrap
+                        text: kb.historicalHeadline()
+                    }
+                    Text {
+                        width: parent.width
+                        color: "#d8e5f5"
+                        font.pixelSize: 12; wrapMode: Text.WordWrap
+                        text: {
+                            var h = kb.advice.historical || {}
+                            if (!kb.myTurnNow)
+                                return "Historical lookup is available during your turn. "
+                                    + "After playing, its match/no-match result is recorded "
+                                    + "for the 30-day pilot under PROGRESS."
+                            return h.message || "No recorded historical hand is available."
+                        }
+                    }
+                    Text {
+                        width: parent.width
+                        color: "#a9c1da"
+                        font.pixelSize: 11; wrapMode: Text.WordWrap
+                        text: "PILOT CORPUS: 11 no-limit hold'em hands, 88 actual "
+                            + "decisions from the 2023 WSOP $50,000 Poker Players "
+                            + "Championship final table. Every example links to the "
+                            + "published PHH transcript. Other game variants are excluded."
+                    }
+                    Repeater {
+                        model: kb.myTurnNow && kb.advice.historical
+                               ? (kb.advice.historical.matches || []) : []
+                        delegate: Column {
+                            required property var modelData
+                            width: parent.width
+                            spacing: 6
+                            Text {
+                                width: parent.width
+                                color: modelData.close ? "#b9f0d1" : "#e4c496"
+                                font.bold: true
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                text: modelData.player + " · " + modelData.action
+                                    + " · structural score "
+                                    + Number(modelData.similarity).toFixed(1) + "/100"
+                                    + (modelData.close ? " [structural analogue]"
+                                                       : " [context ONLY]")
+                            }
+                            Text {
+                                width: parent.width
+                                color: "#e2ebf8"; font.pixelSize: 12
+                                wrapMode: Text.WordWrap
+                                text: "WSOP hand #" + modelData.hand
+                                    + " · " + modelData.street + " · " + modelData.position
+                                    + " · " + modelData.hole
+                                    + (modelData.board ? " on " + modelData.board : "")
+                                    + " · live in hand: " + modelData.playersInHand
+                                    + "\nStack: " + modelData.stackBB + " BB"
+                                    + " · pot: " + modelData.potBB + " BB"
+                                    + " · facing: " + modelData.toCallBB + " BB"
+                                    + " · amount committed now: " + modelData.amountBB + " BB."
+                            }
+                            Text {
+                                width: parent.width
+                                color: "#aebfd7"; font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                                text: modelData.comparison
+                                    + ". Source transcript is independent evidence of "
+                                    + "WHAT happened, not proof it was correct."
+                            }
+                            TrainerButton {
+                                width: parent.width
+                                text: "OPEN VERIFIED SOURCE · WSOP #" + modelData.hand
+                                onClicked: Qt.openUrlExternally(modelData.sourceUrl)
+                            }
+                            Rectangle { width: parent.width; height: 1; color: "#556781" }
+                        }
+                    }
+                    Text {
+                        width: parent.width
+                        color: "#aebfd7"; font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                        text: "Similarity uses public hole-card class, street, position, "
+                            + "stack, pot pressure, opponents and board texture; "
+                            + "it omits complete betting history, villain reads, "
+                            + "ICM and payout pressure. Even 100/100 here is "
+                            + "NOT an optimal-play score. A selection-biased "
+                            + "11-hand corpus cannot support pro-strategy frequencies. "
+                            + "The historical action is observed, not recommended."
+                    }
+                }
+            }
         }
     }
 
