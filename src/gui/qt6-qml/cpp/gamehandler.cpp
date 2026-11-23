@@ -941,6 +941,208 @@ QVariantMap GameHandler::kibitzerSetBetResponse(
 }
 
 
+// A two-point, heads-up, terminal-showdown counterfactual model.
+// Opponent's *continuing range* is a deterministic selection from their
+// assumed pre-bet range. Fold fraction is calculated by counting all legal
+// initial hole-card combinations after hero/board blockers (not guessed).
+// Neither bot cards nor post-bet behavior is inspected.
+QVariantMap GameHandler::kibitzerBetSizingEstimate(
+    const int hole[2], const int board[5], int boardSize, int opponents,
+    int opponentSeat, int opponentCash, bool anyAllIn, int pot, int price,
+    double baselineEquity, double baselineStdError) const
+{
+    QVariantMap result;
+    result["status"] = QStringLiteral("unconfigured");
+    result["modelVersion"] = QStringLiteral("heads-up-range-response-terminal-ev-v1");
+    result["message"] = QStringLiteral(
+        "Enter an opponent continuing range for 1/2-pot and/or pot-sized bets "
+        "under BET EV. Without those assumptions there is no computed raise EV.");
+    result["pot"] = pot;
+    result["price"] = price;
+    result["referenceEV"] = price > 0
+        ? std::max(0.0, baselineEquity*(pot+price)-price)
+        : baselineEquity*pot;
+    result["callOrCheckEV"] = baselineEquity*(pot+price)-price;
+    result["baselineAction"] = price == 0 ? QStringLiteral("CHECK")
+        : (result.value("callOrCheckEV").toDouble() > 0
+            ? QStringLiteral("CALL") : QStringLiteral("FOLD"));
+
+    if (opponents != 1) {
+        result["status"] = QStringLiteral("multiway");
+        result["message"] = QStringLiteral(
+            "This terminal EV model is heads-up only. Multiway response probabilities "
+            "and side pots are not estimated; Stage A remains available.");
+        return result;
+    }
+    if (opponentSeat <= 0 || anyAllIn || opponentCash <= 0) {
+        result["status"] = QStringLiteral("all-in");
+        result["message"] = QStringLiteral(
+            "All-in and side-pot risk: numerical bet sizing withheld.");
+        return result;
+    }
+    if (pot <= 0 || m_minRaiseAmount <= 0 || m_maxRaiseAmount <= price) {
+        result["status"] = QStringLiteral("no-raise");
+        result["message"] = QStringLiteral("No ordinary legal bet/raise is available.");
+        return result;
+    }
+    const QString half = m_kibitzerContinueHalfPot.value(opponentSeat);
+    const QString full = m_kibitzerContinueFullPot.value(opponentSeat);
+    if (half.isEmpty() && full.isEmpty()) return result;
+
+    const QString initial = m_kibitzerManualRanges.value(opponentSeat);
+    HoleCardsRange priorRange;
+    const HoleCardsRange *prior = nullptr;
+    if (!initial.isEmpty()) {
+        if (!priorRange.add(initial.toStdString()) || priorRange.empty()) {
+            result["status"] = QStringLiteral("invalid");
+            result["message"] = QStringLiteral("Initial range is not valid.");
+            return result;
+        }
+        prior = &priorRange;
+    }
+    const struct {
+        const char *label;
+        int numerator;
+        int denominator;
+        QString notation;
+    } candidates[] = {
+        {"1/2-pot extra",1,2,half},
+        {"pot extra",1,1,full}
+    };
+
+    QVariantList rows;
+    QVariantMap best;
+    bool found=false;
+    double bestDelta = -std::numeric_limits<double>::infinity();
+    for (const auto &c : candidates) {
+        QVariantMap row;
+        row["label"] = QString::fromLatin1(c.label);
+        row["notation"] = c.notation;
+        row["status"] = QStringLiteral("unconfigured");
+        row["size"] = KibitzerBetSizing::sizeForPotFraction(pot,price,
+                                                           c.numerator,c.denominator);
+        const int spend = row.value("size").toInt();
+        row["extraCall"] = spend-price;
+        if (c.notation.isEmpty()) {
+            row["reason"] = QStringLiteral("No continuing range assigned for this size.");
+            rows.append(row);
+            continue;
+        }
+        if (spend <= price || spend < m_minRaiseAmount || spend >= m_maxRaiseAmount ||
+            spend-price >= opponentCash) {
+            row["status"] = QStringLiteral("illegal");
+            row["reason"] = QStringLiteral(
+                "This exact pot-relative size is not a legal non-all-in raise "
+                "for hero and opponent. We do not silently alter the assumed size.");
+            rows.append(row);
+            continue;
+        }
+        HoleCardsRange continuing;
+        if (!continuing.add(c.notation.toStdString()) || continuing.empty()) {
+            row["status"] = QStringLiteral("invalid");
+            row["reason"] = QStringLiteral("Invalid continuing-range notation.");
+            rows.append(row);
+            continue;
+        }
+        const auto counts = KibitzerBetSizing::countResponses(prior,continuing,
+                                                               hole,board,boardSize);
+        if (!counts.subset || !counts.valid) {
+            row["status"] = QStringLiteral("invalid");
+            row["reason"] = !counts.subset
+                ? QStringLiteral("Continuing range is not a subset of the current initial range.")
+                : QStringLiteral("No compatible calling hands remain after known-card blockers.");
+            rows.append(row);
+            continue;
+        }
+        row["priorCombos"] = counts.prior;
+        row["callCombos"] = counts.continueCombos;
+        row["foldProbability"] = counts.foldProbability;
+        // The equity calculator uses ONLY the named range and hero/board cards.
+        // The seed allows a stored snapshot to explain what was calculated,
+        // although the Phase-B result is not yet part of deterministic replay.
+        constexpr int kResponseSamples = 2200;
+        const std::uint32_t responseSeed = QRandomGenerator::global()->generate() | 1U;
+        std::vector<const HoleCardsRange*> ranges{&continuing};
+        const auto callEquity = EquityCalculator::equity(
+            hole,board,boardSize,ranges,kResponseSamples,responseSeed,true);
+        row["samples"] = callEquity.samples;
+        row["seed"] = static_cast<quint64>(responseSeed);
+        if (callEquity.samples < 1000) {
+            row["status"] = QStringLiteral("insufficient");
+            row["reason"] = QStringLiteral(
+                "Insufficient Monte Carlo deals against the calling range.");
+            rows.append(row);
+            continue;
+        }
+        KibitzerBetSizing::ActionInput in;
+        in.pot=pot;
+        in.call=price;
+        in.minRaise=m_minRaiseAmount;
+        in.maxRaise=m_maxRaiseAmount;
+        in.opponentCash=opponentCash;
+        in.heroSpend=spend;
+        in.baselineEquity=baselineEquity;
+        in.baselineStdError=baselineStdError;
+        in.continuingEquity=callEquity.equity;
+        in.continuingStdError=callEquity.standardError;
+        in.foldProbability=counts.foldProbability;
+        const auto ev = KibitzerBetSizing::evaluate(in);
+        if (!ev.valid) {
+            row["status"] = QStringLiteral("invalid");
+            row["reason"] = QStringLiteral("Illegal amounts or invalid response inputs.");
+            rows.append(row);
+            continue;
+        }
+        row["status"] = QStringLiteral("ready");
+        row["callEquity"] = callEquity.equity;
+        row["equityStdError"] = callEquity.standardError;
+        row["foldEV"] = counts.foldProbability*pot;
+        row["callPot"] = ev.conditionalCallPot;
+        row["opponentAdditionalCall"] = ev.opponentAdditionalCall;
+        row["raiseEV"] = ev.raiseEV;
+        row["delta"] = ev.advantage;
+        row["samplingMargin"] = ev.samplingMargin;
+        row["baselineEV"] = ev.referenceEV;
+        row["comparison"] = ev.advantage > ev.samplingMargin
+            ? QStringLiteral("model-raise-edge")
+            : (ev.advantage <= 0.0 ? QStringLiteral("passive-better")
+                                   : QStringLiteral("within-sampling-error"));
+        rows.append(row);
+        if (!found || ev.advantage > bestDelta) {
+            found=true;
+            bestDelta=ev.advantage;
+            best=row;
+        }
+    }
+    result["rows"] = rows;
+    if (!found) {
+        result["status"] = QStringLiteral("no-computable-size");
+        result["message"] = QStringLiteral(
+            "No configured size can be evaluated. Check legal chip amounts, "
+            "range subsets and the availability of calling combinations.");
+        return result;
+    }
+    result["status"] = QStringLiteral("ready");
+    result["best"] = best;
+    const bool edge = best.value("delta").toDouble()
+                          > best.value("samplingMargin").toDouble();
+    result["modeledRaiseEdge"] = edge;
+    result["message"] = edge
+        ? QStringLiteral("A raise has a positive terminal-showdown chip-EV advantage "
+                         "under your assumed pre-bet and continuing ranges.")
+        : QStringLiteral("No raise size has an unambiguous advantage under this "
+                         "terminal-showdown response model and its sampling error.");
+    result["caveat"] = QStringLiteral(
+        "All EV figures are incremental chips from NOW. Folds win the pre-action pot. "
+        "The opponent calls or folds according to your *deterministic* hand-type "
+        "response ranges, uniformly weighted by unblocked combinations. "
+        "No re-raises, future bets, strategic position, opponent adaptation, "
+        "side pots or tournament ICM; these results are NOT optimal/GTO advice. "
+        "Monte Carlo margins reflect only sampling noise, not mistaken ranges.");
+    return result;
+}
+
+
 // A small, deliberately read-only teaching aid. Only public cards and the
 // human player's cards are used. Not available in online games.
 QVariantMap GameHandler::kibitzerAdvice() const
