@@ -100,8 +100,9 @@ int main() {
         auto c = KibitzerCouncil::assess(in);
         assert(c.lenses[0].stance == KibitzerCouncil::Stance::Call);
         assert(c.lenses[1].stance == KibitzerCouncil::Stance::Call);
-        assert(c.consensus == KibitzerCouncil::Stance::Call);
-        assert(c.supporting == 2);
+        assert(!c.lenses[1].comparable); // Sensitivity is NOT a second vote.
+        assert(c.consensus == KibitzerCouncil::Stance::Abstain);
+        assert(c.supporting == 1);
         assert(!c.sensitiveToRanges);
 
         in.randomEquity = 0.05; // Both hypotheses no longer corroborate.
@@ -119,13 +120,14 @@ int main() {
         assert(!c.lenses[2].comparable); // A candidate is not an actionable vote.
         assert(c.lenses[3].stance == KibitzerCouncil::Stance::Raise);
         assert(c.consensus == KibitzerCouncil::Stance::Abstain);
-        assert(c.conflicting > 0);
+        assert(c.conflicting == 0); // CALL viable and RAISE better can BOTH be true.
 
         in.betEvRaiseEdge = false;
         in.betEvPassiveEdge = true;
         c = KibitzerCouncil::assess(in);
+        assert(c.lenses[3].stance == KibitzerCouncil::Stance::Passive);
         assert(c.consensus == KibitzerCouncil::Stance::Call);
-        assert(c.supporting == 3);
+        assert(c.supporting == 2);
 
         in.manualRanges = false;
         in.betEvReady = false;
@@ -143,6 +145,7 @@ int main() {
         in.betEvPassiveEdge = true;
         const auto c = KibitzerCouncil::assess(in);
         assert(c.consensus == KibitzerCouncil::Stance::Check);
+        assert(c.supporting == 2);
     }
     std::cout << "Stage-A aggression tests passed\n";
 }
