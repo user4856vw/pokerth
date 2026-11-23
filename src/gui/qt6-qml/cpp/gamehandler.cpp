@@ -1509,19 +1509,23 @@ QVariantMap GameHandler::kibitzerAdvice() const
     // A CALL-vs-FOLD finding and a RAISE-vs-PASSIVE finding are not
     // competing recommendations. They can both be true simultaneously.
     councilInfo["status"] = ci.betEvRaiseEdge ? QStringLiteral("conditional-raise")
-        : (council.consensus != KibitzerCouncil::Stance::Abstain
-            ? QStringLiteral("conditional-passive")
-            : (ci.betEvReady ? QStringLiteral("unresolved")
-                             : QStringLiteral("partial")));
+        : ci.betEvPassiveEdge ? QStringLiteral("conditional-passive")
+        : (ci.betEvReady ? QStringLiteral("unresolved")
+                         : QStringLiteral("partial"));
     councilInfo["headline"] = ci.betEvRaiseEdge
         ? QStringLiteral("CONDITIONAL RAISE EDGE")
-        : council.consensus != KibitzerCouncil::Stance::Abstain
-            ? QStringLiteral("TESTED PASSIVE: ") + stanceName(council.consensus)
+        : ci.betEvPassiveEdge
+            ? (council.consensus != KibitzerCouncil::Stance::Abstain
+                ? QStringLiteral("TESTED PASSIVE: ") + stanceName(council.consensus)
+                : QStringLiteral("TESTED RAISES TRAIL PASSIVE"))
             : ci.betEvReady
                 ? QStringLiteral("BET EV: NO DECISIVE EDGE")
                 : QStringLiteral("NO COMPLETE ACTION COMPARISON");
     councilInfo["stance"] = ci.betEvRaiseEdge
-        ? QStringLiteral("BET/RAISE") : stanceName(council.consensus);
+        ? QStringLiteral("BET/RAISE")
+        : ci.betEvPassiveEdge && council.consensus == KibitzerCouncil::Stance::Abstain
+            ? QStringLiteral("PASSIVE LINE (CHECK/CALL/FOLD UNCLEAR)")
+            : stanceName(council.consensus);
     councilInfo["comparable"] = council.comparable;
     councilInfo["supporting"] = council.supporting;
     councilInfo["conflicting"] = council.conflicting;
