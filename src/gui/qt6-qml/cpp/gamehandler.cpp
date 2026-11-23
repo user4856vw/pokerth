@@ -1136,11 +1136,19 @@ QVariantMap GameHandler::kibitzerBetSizingEstimate(
     const bool edge = best.value("delta").toDouble()
                           > best.value("samplingMargin").toDouble();
     result["modeledRaiseEdge"] = edge;
+    const bool passiveEdge = best.value("delta").toDouble()
+                                 < -best.value("samplingMargin").toDouble();
+    result["modelVerdict"] = edge ? QStringLiteral("raise-candidate")
+        : (passiveEdge ? QStringLiteral("passive-favored")
+                       : QStringLiteral("sampling-close"));
     result["message"] = edge
         ? QStringLiteral("A raise has a positive terminal-showdown chip-EV advantage "
                          "under your assumed pre-bet and continuing ranges.")
-        : QStringLiteral("No raise size has an unambiguous advantage under this "
-                         "terminal-showdown response model and its sampling error.");
+        : (passiveEdge
+            ? QStringLiteral("Both evaluated raises are worse than the passive "
+                             "reference under these assumptions and sampling margins.")
+            : QStringLiteral("The best of the two raises is not distinguishable "
+                             "from the passive reference within sampling error."));
     result["caveat"] = QStringLiteral(
         "All EV figures are incremental chips from NOW. Folds win the pre-action pot. "
         "The opponent calls or folds according to your *deterministic* hand-type "
