@@ -240,6 +240,8 @@ public:
 	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
 	Q_INVOKABLE QVariantList kibitzerOpponentRanges() const;
 	Q_INVOKABLE QVariantMap kibitzerSetOpponentRange(int seatId, const QString &notation);
+	Q_INVOKABLE QVariantMap kibitzerSetBetResponse(int seatId,
+		const QString &halfPotContinue, const QString &potContinue);
 	Q_INVOKABLE QVariantMap kibitzerReplayDecision(const QVariantMap &decision) const;
 	Q_INVOKABLE QVariantList kibitzerRecentDecisions(int limit = 20) const;
 	// Changes whenever a local game is started or left. The delayed
@@ -666,6 +668,8 @@ private:
 	// User-specified hypotheses by local seat ID; never inferred from hidden bot cards.
 	// Reset for each newly started local table, retained across its hands.
 	QHash<int, QString> m_kibitzerManualRanges;
+	QHash<int, QString> m_kibitzerContinueHalfPot;
+	QHash<int, QString> m_kibitzerContinueFullPot;
 	QVariantMap m_kibitzerProgress;
 	QVariantList m_kibitzerHistory;
 	QVariantList m_kibitzerTournaments;
