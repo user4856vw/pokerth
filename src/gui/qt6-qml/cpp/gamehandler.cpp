@@ -17,6 +17,7 @@
 #include "kibitzer_review_logic.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
+#include "kibitzer_mc_config.h"
 #include "kibitzer_tournament_stats.h"
 #include <equitycalculator.h>
 #include <holecardsrange.h>
@@ -33,6 +34,7 @@
 #include <QFileInfo>
 #include <QDateTime>
 #include <QRandomGenerator>
+#include <QSettings>
 #include <cmath>
 #include <cstdint>
 #include <QRegularExpression>
@@ -172,6 +174,15 @@ GameHandler::GameHandler(QObject *parent)
 	m_afkResetTimer.start();
 	if (qApp)
 		qApp->installEventFilter(this);
+	// Training preference is separate from history: restoring JSON decisions
+	// must not unexpectedly change the device's Monte Carlo run setting.
+	QSettings settings(QStringLiteral("PokerTH"), QStringLiteral("KibitzerTrainer"));
+	bool parsed = false;
+	const int storedRuns = settings.value(QStringLiteral("monteCarloRuns"),
+		KibitzerMonteCarlo::kDefaultRuns).toInt(&parsed);
+	m_kibitzerMonteCarloRuns = parsed
+		? KibitzerMonteCarlo::fromStored(storedRuns)
+		: KibitzerMonteCarlo::kDefaultRuns;
 	loadKibitzerProgress();
 }
 
@@ -230,6 +241,21 @@ void GameHandler::setConfig(ConfigFile *config)
 	m_config = config;
 	if (m_chatTranslator)
 		m_chatTranslator->setConfig(config);
+}
+
+bool GameHandler::kibitzerSetMonteCarloRuns(int requested)
+{
+    if (!KibitzerMonteCarlo::valid(requested)) return false;
+    if (m_kibitzerMonteCarloRuns == requested) return true;
+
+    QSettings settings(QStringLiteral("PokerTH"), QStringLiteral("KibitzerTrainer"));
+    settings.setValue(QStringLiteral("monteCarloRuns"), requested);
+    settings.sync();
+    if (settings.status() != QSettings::NoError) return false;
+
+    m_kibitzerMonteCarloRuns = requested;
+    emit kibitzerMonteCarloRunsChanged();
+    return true;
 }
 
 void GameHandler::setSoundEvents(SoundEvents *soundEvents)
@@ -1069,12 +1095,13 @@ QVariantMap GameHandler::kibitzerBetSizingEstimate(
         // The equity calculator uses ONLY the named range and hero/board cards.
         // The seed allows a stored snapshot to explain what was calculated,
         // although the Phase-B result is not yet part of deterministic replay.
-        constexpr int kResponseSamples = 2200;
+        const int kResponseSamples = m_kibitzerMonteCarloRuns;
         const std::uint32_t responseSeed = QRandomGenerator::global()->generate() | 1U;
         std::vector<const HoleCardsRange*> ranges{continueAll ? prior : &continuing};
         const auto callEquity = EquityCalculator::equity(
             hole,board,boardSize,ranges,kResponseSamples,responseSeed,true);
         row["samples"] = callEquity.samples;
+        row["samplesRequested"] = kResponseSamples;
         row["seed"] = static_cast<quint64>(responseSeed);
         if (callEquity.samples < 1000) {
             row["status"] = QStringLiteral("insufficient");
@@ -1243,7 +1270,7 @@ QVariantMap GameHandler::kibitzerAdvice() const
     }
     // Nonzero seed makes this particular estimate exactly replayable later.
     // The seed is independent of the game engine and never reveals bot cards.
-    constexpr int kSamples = 2500;
+    const int kSamples = m_kibitzerMonteCarloRuns;
     const std::uint32_t seed = QRandomGenerator::global()->generate() | 1U;
     const auto estimate = EquityCalculator::equity(hole, board, boardSize,
                                                    opponents, nullptr, kSamples, seed);
