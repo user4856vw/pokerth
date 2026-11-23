@@ -88,5 +88,61 @@ int main() {
         assert(premiumPreflop(in.hero));
         assert(assess(in).signal == Signal::PremiumPreflop);
     }
+    // Modelled strategy council: NEVER synthesize real poker-pro votes.
+    {
+        KibitzerCouncil::Input in;
+        in.price = 20;
+        in.required = 0.25;
+        in.margin = 0.02;
+        in.judgedEquity = 0.60;
+        in.randomEquity = 0.65;
+        in.manualRanges = true;
+        auto c = KibitzerCouncil::assess(in);
+        assert(c.lenses[0].stance == KibitzerCouncil::Stance::Call);
+        assert(c.lenses[1].stance == KibitzerCouncil::Stance::Call);
+        assert(c.consensus == KibitzerCouncil::Stance::Call);
+        assert(c.supporting == 2);
+        assert(!c.sensitiveToRanges);
+
+        in.randomEquity = 0.05; // Both hypotheses no longer corroborate.
+        c = KibitzerCouncil::assess(in);
+        assert(c.sensitiveToRanges);
+        assert(c.lenses[1].stance == KibitzerCouncil::Stance::Abstain);
+        assert(c.consensus == KibitzerCouncil::Stance::Abstain);
+
+        in.randomEquity = 0.65;
+        in.betEvReady = true;
+        in.betEvRaiseEdge = true; // Bet EV conflicts with passive CALL.
+        in.aggressionCandidate = true;
+        c = KibitzerCouncil::assess(in);
+        assert(c.lenses[2].stance == KibitzerCouncil::Stance::ExploreRaise);
+        assert(!c.lenses[2].comparable); // A candidate is not an actionable vote.
+        assert(c.lenses[3].stance == KibitzerCouncil::Stance::Raise);
+        assert(c.consensus == KibitzerCouncil::Stance::Abstain);
+        assert(c.conflicting > 0);
+
+        in.betEvRaiseEdge = false;
+        in.betEvPassiveEdge = true;
+        c = KibitzerCouncil::assess(in);
+        assert(c.consensus == KibitzerCouncil::Stance::Call);
+        assert(c.supporting == 3);
+
+        in.manualRanges = false;
+        in.betEvReady = false;
+        in.betEvPassiveEdge = false;
+        c = KibitzerCouncil::assess(in);
+        assert(c.lenses[1].stance == KibitzerCouncil::Stance::Abstain);
+        assert(c.consensus == KibitzerCouncil::Stance::Abstain);
+    }
+    {
+        KibitzerCouncil::Input in;
+        in.price = 0;
+        in.randomEquity = 0.40;
+        in.judgedEquity = 0.40;
+        in.betEvReady = true;
+        in.betEvPassiveEdge = true;
+        const auto c = KibitzerCouncil::assess(in);
+        assert(c.consensus == KibitzerCouncil::Stance::Check);
+    }
     std::cout << "Stage-A aggression tests passed\n";
 }
