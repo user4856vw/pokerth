@@ -131,3 +131,132 @@ inline Assessment assess(const Input &in) {
 }
 
 } // namespace KibitzerAggression
+
+
+// A transparent cross-check of four EDUCATIONAL STRATEGY LENSES.
+// These are deterministic models built from the visible game state, NOT
+// statements, votes or endorsements by any real professional poker player.
+// The range-robustness lens deliberately shares inputs with the pot-odds
+// lens: its alignment is a sensitivity check, not independent confirmation.
+namespace KibitzerCouncil {
+
+enum class Stance { Abstain, Fold, Check, Call, Raise, ExploreRaise };
+
+struct Input {
+    int price = 0;
+    double randomEquity = 0.0;
+    double judgedEquity = 0.0;
+    double required = 0.0;
+    double margin = 0.0;
+    bool manualRanges = false;
+    bool aggressionCandidate = false;
+    bool betEvReady = false;
+    bool betEvRaiseEdge = false;
+    bool betEvPassiveEdge = false;
+};
+
+struct Lens {
+    const char *label = "";
+    Stance stance = Stance::Abstain;
+    const char *reason = "";
+    bool comparable = false;  // "raise to study" cannot be counted as a vote
+};
+
+struct Result {
+    Lens lenses[4];
+    Stance consensus = Stance::Abstain;
+    int comparable = 0;
+    int supporting = 0;
+    int conflicting = 0;
+    bool sensitiveToRanges = false;
+};
+
+inline Stance potOdds(double equity, double threshold, double margin, int price) {
+    if (price == 0) return Stance::Check; // Only a safe fallback, not optimality.
+    if (!std::isfinite(equity) || !std::isfinite(threshold) ||
+        !std::isfinite(margin) || margin < 0.0 || equity < 0.0 || equity > 1.0)
+        return Stance::Abstain;
+    if (equity > threshold + margin) return Stance::Call;
+    if (equity < threshold - margin) return Stance::Fold;
+    return Stance::Abstain;
+}
+
+inline Result assess(const Input &in) {
+    Result r;
+    if (in.price < 0 || !std::isfinite(in.randomEquity) ||
+        !std::isfinite(in.judgedEquity) || !std::isfinite(in.required) ||
+        !std::isfinite(in.margin) || in.margin < 0.0 ||
+        in.randomEquity < 0.0 || in.randomEquity > 1.0 ||
+        in.judgedEquity < 0.0 || in.judgedEquity > 1.0 ||
+        in.required < 0.0 || in.required > 1.0) return r;
+
+    const Stance priced = potOdds(in.judgedEquity, in.required, in.margin, in.price);
+    r.lenses[0] = {"Pot-odds discipline", priced,
+        in.price == 0 ? "A check is free; no assertion that checking beats betting."
+        : "Compare conditioned showdown equity to the immediate call threshold plus its margin; no future-bet model.",
+        priced != Stance::Abstain};
+
+    // Only claim a range-robust result if the random and selected-range
+    // hypotheses both clearly choose the SAME priced action.
+    const Stance random = potOdds(in.randomEquity, in.required,
+                                  std::max(0.12, in.margin), in.price);
+    Stance robust = Stance::Abstain;
+    if (in.manualRanges && in.price > 0 &&
+        priced != Stance::Abstain && random == priced)
+        robust = priced;
+    r.sensitiveToRanges = in.manualRanges && in.price > 0 &&
+        priced != Stance::Abstain && random != priced;
+    r.lenses[1] = {"Assumption stress test", robust,
+        !in.manualRanges ? "Requires your assigned opponent ranges; random-only data cannot test sensitivity."
+        : r.sensitiveToRanges ? "Random and assigned-range hypotheses do not give the same clear action."
+        : robust != Stance::Abstain ? "Both random and selected-range models pass their respective caution margins."
+        : "No same-action result survives both hypothesis margins.",
+        robust != Stance::Abstain};
+
+    r.lenses[2] = {"Value and pressure scout",
+        in.aggressionCandidate ? Stance::ExploreRaise : Stance::Abstain,
+        in.aggressionCandidate
+            ? "Stage A found a premium/value/draw candidate. This is a research lead, NOT positive raise EV."
+            : "No supported Stage-A pressure signal; that is not evidence against betting.",
+        false};
+
+    Stance bet = Stance::Abstain;
+    if (in.betEvReady && in.betEvRaiseEdge) bet = Stance::Raise;
+    else if (in.betEvReady && in.betEvPassiveEdge) bet = priced;
+    r.lenses[3] = {"Response-aware chip EV", bet,
+        !in.betEvReady ? "Requires a heads-up opponent continuing-range model; not configured or unsupported."
+        : in.betEvRaiseEdge ? "An evaluated bet size exceeds the passive reference beyond the sampling margin, conditional on supplied response ranges."
+        : in.betEvPassiveEdge ? "Evaluated raises trail the passive reference; the passive action still depends on the pot-odds check."
+        : "Best evaluated size is within sampling error; no decisive comparison.",
+        bet != Stance::Abstain};
+
+    // An alignment label describes MODEL concordance, not a head-count of
+    // experts, an independent statistical sample, or a Nash/GTO solution.
+    for (const Lens &lens : r.lenses) {
+        if (!lens.comparable) continue;
+        ++r.comparable;
+    }
+    if (r.comparable < 2) return r;
+    for (const Lens &candidate : r.lenses) {
+        if (!candidate.comparable) continue;
+        int same = 0, different = 0;
+        for (const Lens &other : r.lenses) {
+            if (!other.comparable) continue;
+            if (other.stance == candidate.stance) ++same;
+            else ++different;
+        }
+        if (same >= 2 && different == 0) {
+            r.consensus = candidate.stance;
+            r.supporting = same;
+            r.conflicting = 0;
+            return r;
+        }
+    }
+    // Conflict is exposed rather than suppressed by choosing a winner.
+    for (const Lens &lens : r.lenses) {
+        if (lens.comparable) ++r.conflicting;
+    }
+    return r;
+}
+
+} // namespace KibitzerCouncil
