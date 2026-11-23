@@ -163,9 +163,11 @@ Rectangle {
             + "; bet-size EV verdict: " + (e.betEvVerdict || "not calculated")
             + "; Stage-A pressure: " + (e.aggressionSignal || "none") + ".\n"
             + "\n" + c.caveat
-            + "\n\nNo real professional players have been consulted. "
-            + "These are related heuristic checks, not independent votes or a GTO solution. "
-            + "Tap the equity and BET EV rows to inspect the underlying calculations."
+            + "\n\nThis MODEL CROSS-CHECK never consults professional players "
+            + "or historical hands. Its checks reuse correlated models, "
+            + "not independent votes or a GTO solution. "
+            + "Use HISTORICAL PRO HANDS for separately sourced real actions. "
+            + "Tap the equity and BET EV rows to inspect the model calculations."
         return body
     }
     function explainCouncil() {
