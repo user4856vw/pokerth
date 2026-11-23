@@ -8,7 +8,7 @@ namespace KibitzerAutoplay {
 
 enum class Action { Check, Call, Fold, Raise };
 // Council's actual combined stance (not merely its component pot-odds lens).
-enum class CouncilStance { Abstain, Check, Call, Fold, Raise };
+enum class CouncilStance { Abstain, Check, Call, Fold, Raise, Passive };
 
 struct Input {
     CouncilStance council = CouncilStance::Abstain;
@@ -52,6 +52,14 @@ inline Decision choose(const Input &in)
         in.modeledRaiseSize <= in.maxRaise) {
         return {Action::Raise, in.modeledRaiseSize, false,
                 "explicit-conditional-bet-ev-raise"};
+    }
+    // Stage A is an unpriced suggestion to investigate a raise. During
+    // local self-play *only*, try the legal minimum as a marked experiment
+    // when no combined Council stance contradicts the aggression signal.
+    if (in.council == CouncilStance::Abstain && in.aggressionCandidate &&
+        in.minRaise > 0 && in.maxRaise >= in.minRaise) {
+        return {Action::Raise, in.minRaise, true,
+                "stage-a-unpriced-minimum-raise-experiment"};
     }
     // No free folds, even if a conditional aggression signal exists.
     if (in.price <= 0)
