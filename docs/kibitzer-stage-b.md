@@ -72,8 +72,11 @@ folding and raising behavior conditional on board, stack depth, action history,
 position and bet size. Our model currently has none of that.
 
 The separate `e_call` equity is estimated against the continuing range by
-the standard PokerTH Monte Carlo evaluator. The displayed ~95% statistical
-margin conservatively adds the sampling errors of reference and raise EV.
+the standard PokerTH Monte Carlo evaluator. Since the model selects the
+best of two sizes, the displayed Monte Carlo sampling guard uses an approximate
+two-comparison familywise normal multiplier (2.25) on the conservative **sum**
+of the baseline and candidate EV standard errors. This does not imply that
+the strategy is 95% likely to be correct.
 **It does not measure the potentially much larger error in the selected ranges.**
 
 ### Numerical example (not a prediction)
