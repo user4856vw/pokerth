@@ -30,8 +30,11 @@ export regularly rather than assuming unlimited month-long retention.
   tie. If the model is unavailable or an assigned range cannot be evaluated,
   the safe fallback is check when free, otherwise fold.
 * A Stage A `STUDY A RAISE` indication does **not** specify a bet size or
-  opponent response model; the controller takes a passive line instead.
-  Those decisions are marked `provisional` in the audit.
+  opponent response model. For this local **experiment only**, when there is
+  no contradictory combined Council stance, the controller tries the legal
+  minimum raise. This extra sizing assumption is flagged `provisional`.
+  Any explicit Council passive recommendation takes precedence; the
+  experimental raise is never presented as a modeled positive-EV finding.
 
 This is a **testable completion policy**, not a claim that Council is a
 fully specified game-theoretic strategy. For the month-end review, report
