@@ -16,6 +16,7 @@
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
 #include "kibitzer_aggression_logic.h"
+#include "kibitzer_betsizing_logic.h"
 #include "kibitzer_tournament_stats.h"
 #include <equitycalculator.h>
 #include <holecardsrange.h>
@@ -298,6 +299,8 @@ void GameHandler::setGame(boost::shared_ptr<Game> game)
 	m_kibitzerHandId = -1;
 	m_kibitzerHandSettlement.clear();
 	m_kibitzerManualRanges.clear(); // seat numbers are specific to this game
+	m_kibitzerContinueHalfPot.clear();
+	m_kibitzerContinueFullPot.clear();
 	emit kibitzerRangesChanged();
 	emit kibitzerReviewChanged();
 	m_leftPlayers.clear();
@@ -823,6 +826,8 @@ QVariantList GameHandler::kibitzerOpponentRanges() const
         item["seatId"] = seat;
         item["name"] = p.value("name").toString();
         item["notation"] = notation;
+        item["halfContinue"] = m_kibitzerContinueHalfPot.value(seat);
+        item["potContinue"] = m_kibitzerContinueFullPot.value(seat);
         item["folded"] = p.value("folded").toBool();
         item["active"] = p.value("active").toBool();
         item["custom"] = !notation.isEmpty();
@@ -872,6 +877,65 @@ QVariantMap GameHandler::kibitzerSetOpponentRange(int seatId, const QString &not
     out["notation"] = raw;
     out["message"] = raw.isEmpty() ? QStringLiteral("Any two cards (random baseline)")
                                    : QStringLiteral("Your range hypothesis saved");
+    emit kibitzerRangesChanged();
+    return out;
+}
+
+
+// Optional Stage-B assumption: which initial hole-card combinations call an
+// additional half-pot or full-pot bet. A blank field disables that candidate.
+// Selections are user hypotheses, NOT predictions fitted to a bot's strategy.
+QVariantMap GameHandler::kibitzerSetBetResponse(
+    int seatId, const QString &halfPotContinue, const QString &potContinue)
+{
+    QVariantMap out;
+    out["ok"] = false;
+    if (!isLocalGameRunning() || m_spectating || seatId <= 0 || seatId > 9
+        || seatId >= m_players.size()
+        || m_players.at(seatId).toMap().value("name").toString().isEmpty()) {
+        out["message"] = QStringLiteral("Not a seated local-game opponent.");
+        return out;
+    }
+    const QString half = halfPotContinue.trimmed();
+    const QString full = potContinue.trimmed();
+    if (half.size() > 384 || full.size() > 384) {
+        out["message"] = QStringLiteral("Range notation is too long.");
+        return out;
+    }
+    HoleCardsRange prior;
+    const QString priorNotation = m_kibitzerManualRanges.value(seatId);
+    const bool hasPrior = !priorNotation.isEmpty();
+    if (hasPrior && (!prior.add(priorNotation.toStdString()) || prior.empty())) {
+        out["message"] = QStringLiteral("Invalid initial opponent range.");
+        return out;
+    }
+    for (const QString &raw : {half, full}) {
+        if (raw.isEmpty()) continue;
+        HoleCardsRange c;
+        if (!c.add(raw.toStdString()) || c.empty()) {
+            out["message"] = QStringLiteral("Invalid continue range. Use AA,TT+,AKs etc.; blank disables size.");
+            return out;
+        }
+        // If the prior range is user-specified, all calling hands must be
+        // in it; otherwise the implied fold probability would be incoherent.
+        if (hasPrior) {
+            for (int a=0; a<51; ++a) for (int b=a+1; b<52; ++b) {
+                if (c.contains(a,b) && !prior.contains(a,b)) {
+                    out["message"] = QStringLiteral(
+                        "Continuing range must be a subset of that opponent's initial RANGES hypothesis.");
+                    return out;
+                }
+            }
+        }
+    }
+    if (half.isEmpty()) m_kibitzerContinueHalfPot.remove(seatId);
+    else m_kibitzerContinueHalfPot.insert(seatId, half);
+    if (full.isEmpty()) m_kibitzerContinueFullPot.remove(seatId);
+    else m_kibitzerContinueFullPot.insert(seatId, full);
+    out["ok"] = true;
+    out["message"] = half.isEmpty() && full.isEmpty()
+        ? QStringLiteral("Quantitative response model cleared.")
+        : QStringLiteral("Response assumptions saved for this local game.");
     emit kibitzerRangesChanged();
     return out;
 }
