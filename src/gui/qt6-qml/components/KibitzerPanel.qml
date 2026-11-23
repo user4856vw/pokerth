@@ -33,6 +33,21 @@ Rectangle {
                    : "#304961"
         }
     }
+    component TrainerRangeField: TextField {
+        id: trainerRange
+        color: "#f6f9ff"
+        placeholderTextColor: "#b3c6df"
+        selectionColor: "#4f79a3"
+        selectedTextColor: "#ffffff"
+        font.pixelSize: 12
+        selectByMouse: true
+        background: Rectangle {
+            radius: 6
+            color: "#293d54"
+            border.color: trainerRange.activeFocus ? "#e2d089" : "#8299b4"
+            border.width: 1
+        }
+    }
     color: "#eb19212d"
     radius: 10
     border.width: 1
@@ -41,9 +56,10 @@ Rectangle {
     property bool expanded: false
     property bool openRequested: false
     readonly property bool editingRestore: restoreArea.activeFocus
-    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible
+    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible
     property var rangePlayers: []
     property string rangeFeedback: ""
+    property string betFeedback: ""
     readonly property bool customRangeActive: advice.rangeStatus === "ready"
     readonly property bool hasAggressionSignal: advice.status === "ready" && advice.aggression
                   && advice.aggression.status !== "none"
@@ -58,6 +74,50 @@ Rectangle {
             refreshOpponentRanges()
             if (myTurnNow) debounce.restart()
         }
+    }
+    function activeBetSeat() {
+        var r = advice.activeRanges || []
+        return r.length === 1 ? Number(r[0].seatId) : -1
+    }
+    function activeResponse() {
+        var seat = activeBetSeat()
+        for (var i=0;i<rangePlayers.length;++i)
+            if (Number(rangePlayers[i].seatId) === seat) return rangePlayers[i]
+        return {}
+    }
+    function openBetPopup() {
+        refreshOpponentRanges()
+        betFeedback = ""
+        betPopup.open()
+    }
+    function saveBetResponse() {
+        if (!GameTable) return
+        var seat = activeBetSeat()
+        if (seat < 1) {
+            betFeedback = "⚠ Only one opponent can be modeled at a time."
+            return
+        }
+        var result = GameTable.kibitzerSetBetResponse(seat,
+            halfContinueField.text, fullContinueField.text)
+        betFeedback = (result.ok ? "✓ " : "⚠ ") + (result.message || "")
+        if (result.ok) {
+            refreshOpponentRanges()
+            debounce.restart()
+        }
+    }
+    function betEvSummary() {
+        var m = advice.betSizing || {}
+        if (m.status === "ready") {
+            var r = m.best || {}
+            if (m.modeledRaiseEdge)
+                return "BET EV: " + r.label + " · spend " + r.size
+                    + " · advantage +" + Number(r.delta || 0).toFixed(1)
+                    + " chips ⓘ"
+            return "BET EV: no robust modeled raise edge · compare sizes ⓘ"
+        }
+        if (m.status === "unconfigured")
+            return "BET EV: configure opponent responses ⓘ"
+        return "BET EV: " + (m.message || "no modeled size") + " ⓘ"
     }
     function describeRangeScenario() {
         var a = advice
@@ -120,8 +180,8 @@ Rectangle {
     readonly property bool hasReview: report && report.entries && report.entries.length > 0
     readonly property bool reviewMode: forceReview || !myTurnNow
     implicitHeight: (expanded && reviewMode) ? Math.min(288, 95 + reviewLines.implicitHeight)
-                    : (expanded ? 146 + (hasAggressionSignal ? 25 : 0)
-                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 100 : 76)
+                    : (expanded ? 190 + (hasAggressionSignal ? 25 : 0)
+                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 125 : 100)
                         + (hasAggressionSignal ? 25 : 0))
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
@@ -516,6 +576,17 @@ Rectangle {
             }
         }
         Text {
+            visible: !kb.reviewMode && kb.advice.status === "ready"
+            width: parent.width
+            color: (kb.advice.betSizing && kb.advice.betSizing.modeledRaiseEdge)
+                    ? "#b9f0d1" : "#f0d891"
+            font.pixelSize: 11
+            font.bold: true
+            elide: Text.ElideRight
+            text: kb.betEvSummary()
+            MouseArea { anchors.fill: parent; onClicked: kb.openBetPopup() }
+        }
+        Text {
             visible: !kb.reviewMode && kb.hasAggressionSignal
             width: parent.width
             color: "#b9f0d1"
@@ -531,7 +602,7 @@ Rectangle {
             wrapMode: Text.WordWrap
             color: "#d9e5f6"
             font.pixelSize: 11
-            text: kb.advice.explanation + " (No fold equity or tournament ICM.)"
+            text: kb.advice.explanation + " (Stage A ignores fold equity and tournament ICM; BET EV models conditional fold equity.)"
         }
         Text {
             visible: kb.reviewMode && !kb.expanded
