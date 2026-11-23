@@ -237,25 +237,23 @@ inline Result assess(const Input &in) {
         ++r.comparable;
     }
     if (r.comparable < 2) return r;
+    int largestGroup = 0;
+    Stance leading = Stance::Abstain;
     for (const Lens &candidate : r.lenses) {
         if (!candidate.comparable) continue;
-        int same = 0, different = 0;
-        for (const Lens &other : r.lenses) {
-            if (!other.comparable) continue;
-            if (other.stance == candidate.stance) ++same;
-            else ++different;
-        }
-        if (same >= 2 && different == 0) {
-            r.consensus = candidate.stance;
-            r.supporting = same;
-            r.conflicting = 0;
-            return r;
+        int same = 0;
+        for (const Lens &other : r.lenses)
+            if (other.comparable && other.stance == candidate.stance) ++same;
+        if (same > largestGroup) {
+            largestGroup = same;
+            leading = candidate.stance;
         }
     }
-    // Conflict is exposed rather than suppressed by choosing a winner.
-    for (const Lens &lens : r.lenses) {
-        if (lens.comparable) ++r.conflicting;
-    }
+    r.supporting = largestGroup;
+    r.conflicting = r.comparable - largestGroup;
+    // Alignment demands at least TWO matching tests and ZERO contradictions.
+    // Otherwise report a split, even if a majority favors one action.
+    if (largestGroup >= 2 && r.conflicting == 0) r.consensus = leading;
     return r;
 }
 
