@@ -1439,6 +1439,16 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     input.equity = advice.value("effectiveEquity").toDouble();
     input.required = advice.value("required").toDouble();
     input.margin = advice.value("comparisonMargin").toDouble();
+    const QVariantMap councilInfo = advice.value("council").toMap();
+    const QString councilStance = councilInfo.value("stance").toString();
+    if (councilStance == QLatin1String("CHECK"))
+        input.council = KibitzerAutoplay::CouncilStance::Check;
+    else if (councilStance == QLatin1String("CALL"))
+        input.council = KibitzerAutoplay::CouncilStance::Call;
+    else if (councilStance == QLatin1String("FOLD"))
+        input.council = KibitzerAutoplay::CouncilStance::Fold;
+    else if (councilStance == QLatin1String("BET/RAISE"))
+        input.council = KibitzerAutoplay::CouncilStance::Raise;
     const QVariantMap aggression = advice.value("aggression").toMap();
     input.aggressionCandidate = !aggression.isEmpty() &&
         aggression.value("status").toString() != QLatin1String("none");
