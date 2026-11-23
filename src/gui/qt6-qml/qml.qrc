@@ -146,6 +146,7 @@
         <file>pages/LobbyPage.qml</file>
         <file>pages/ForumNewsPage.qml</file>
         <file>pages/ForumPostPage.qml</file>
+        <file>resources/verified_wsop23_nlhe.json</file>
         <file>resources/addReaction.svg</file>
         <file>resources/arrowUpLeft.svg</file>
         <file>resources/barChart.svg</file>
