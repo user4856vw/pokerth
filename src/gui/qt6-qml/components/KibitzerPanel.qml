@@ -652,6 +652,221 @@ Rectangle {
     }
 
     Popup {
+        id: betPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(8, (parent.width - width) / 2)
+        y: Math.max(8, (parent.height - height) / 2)
+        width: Math.min(560, parent.width - 16)
+        height: Math.min(710, parent.height - 16)
+        padding: 12
+        onOpened: {
+            kb.refreshOpponentRanges()
+            var r = kb.activeResponse()
+            halfContinueField.text = r.halfContinue || ""
+            fullContinueField.text = r.potContinue || ""
+        }
+        background: Rectangle {
+            radius: 13
+            color: "#1c2636"
+            border.color: "#94a9ca"
+        }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 8
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    color: "#f0d891"
+                    font.bold: true; font.pixelSize: 16
+                    wrapMode: Text.WordWrap
+                    text: "BET EV · STAGE B"
+                }
+                TrainerButton { text: "Close"; onClicked: betPopup.close() }
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
+                Column {
+                    width: parent.width
+                    spacing: 10
+                    Text {
+                        width: parent.width; color: "#e1ecf9"
+                        font.pixelSize: 12; wrapMode: Text.WordWrap
+                        text: {
+                            var p = kb.activeResponse()
+                            return "Opponent: " + (p.name || "not available")
+                                + " · Initial range: " + (p.notation || "ANY")
+                                + ". Only heads-up, non-all-in local-game decisions are evaluated."
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#b9d2ea"
+                        font.pixelSize: 11; wrapMode: Text.WordWrap
+                        text: "For each size, which starting hands would this opponent "
+                             + "CALL with? All other hands in the INITIAL RANGES "
+                             + "hypothesis are assumed to fold. These are YOUR response "
+                             + "hypotheses, not the bot's known strategy. Blank disables a size."
+                    }
+                    Text {
+                        width: parent.width; color: "#f0d891"
+                        font.pixelSize: 12; font.bold: true
+                        text: "Call range after +½ pot beyond a call"
+                    }
+                    TrainerRangeField {
+                        id: halfContinueField
+                        width: parent.width
+                        placeholderText: "Example: 66+,ATs+,AJo+,KTs+,KQo,QJs,JTs"
+                    }
+                    Text {
+                        width: parent.width; color: "#f0d891"
+                        font.pixelSize: 12; font.bold: true
+                        text: "Call range after +1 pot beyond a call"
+                    }
+                    TrainerRangeField {
+                        id: fullContinueField
+                        width: parent.width
+                        placeholderText: "Example: 99+,AJs+,AQo+,KQs"
+                    }
+                    Row {
+                        width: parent.width
+                        spacing: 6
+                        TrainerButton {
+                            width: (parent.width - 12) / 3
+                            text: "Save"
+                            onClicked: kb.saveBetResponse()
+                        }
+                        TrainerButton {
+                            width: (parent.width - 12) / 3
+                            text: "Example vs ANY"
+                            onClicked: {
+                                halfContinueField.text =
+                                    "22+,A2s+,A8o+,K8s+,KTo+,Q9s+,QJo,J9s+,T9s,98s,87s"
+                                fullContinueField.text =
+                                    "66+,ATs+,AJo+,KTs+,KQo,QJs,JTs"
+                                kb.betFeedback = "Illustrative calling ranges only. Tap Save; "
+                                    + "they must be subsets of your initial range."
+                            }
+                        }
+                        TrainerButton {
+                            width: (parent.width - 12) / 3
+                            text: "Clear"
+                            onClicked: {
+                                halfContinueField.text = ""
+                                fullContinueField.text = ""
+                                kb.saveBetResponse()
+                            }
+                        }
+                    }
+                    Text {
+                        visible: kb.betFeedback !== ""
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 11
+                        color: kb.betFeedback.indexOf("⚠") === 0
+                            ? "#ffb3b3" : "#b9f0d1"
+                        text: kb.betFeedback
+                    }
+                    Rectangle {
+                        width: parent.width; height: 1; color: "#566a84"
+                    }
+                    Text {
+                        width: parent.width; color: "#f0d891"
+                        font.pixelSize: 13; font.bold: true; wrapMode: Text.WordWrap
+                        text: "EXPECTED CHIP VALUE · terminal showdown"
+                    }
+                    Text {
+                        width: parent.width; color: "#dce8f8"
+                        font.pixelSize: 12; wrapMode: Text.WordWrap
+                        text: {
+                            var m = kb.advice.betSizing || {}
+                            if (m.status !== "ready")
+                                return m.message || "No EV estimate is available."
+                            return "Reference: " + m.baselineAction
+                                + " = " + kb.signedNumber(m.referenceEV,1) + " chips EV. "
+                                + "P = " + m.pot + ", C = " + m.price
+                                + ". Baseline calls/checks proceed directly to showdown."
+                        }
+                    }
+                    Repeater {
+                        model: (kb.advice.betSizing || {}).rows || []
+                        delegate: Column {
+                            required property var modelData
+                            width: parent.width
+                            spacing: 4
+                            Text {
+                                width: parent.width
+                                color: modelData.status === "ready" ? "#b9f0d1" : "#e2c18c"
+                                font.pixelSize: 12; font.bold: true; wrapMode: Text.WordWrap
+                                text: modelData.label + " · spend " + modelData.size
+                                    + " chips · " + modelData.status
+                            }
+                            Text {
+                                width: parent.width; color: "#dce8f8"
+                                font.pixelSize: 11; wrapMode: Text.WordWrap
+                                text: {
+                                    if (modelData.status !== "ready")
+                                        return modelData.reason || "Not calculated."
+                                    return "Call " + modelData.callCombos + "/"
+                                        + modelData.priorCombos + " combinations; fold "
+                                        + kb.fmt(100 * modelData.foldProbability)
+                                        + "; equity if called "
+                                        + kb.fmt(100 * modelData.callEquity)
+                                        + "; opponent adds "
+                                        + modelData.opponentAdditionalCall + " chips.\n"
+                                        + "EV: " + kb.signedNumber(modelData.raiseEV,1)
+                                        + " chips; Δ vs " + kb.advice.betSizing.baselineAction
+                                        + " = " + kb.signedNumber(modelData.delta,1)
+                                        + " chips; 95% sampling margin ±"
+                                        + Number(modelData.samplingMargin).toFixed(1)
+                                        + " chips. " + modelData.comparison
+                                }
+                            }
+                            Rectangle {
+                                width: parent.width; height: 1; color: "#566a84"
+                            }
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#b9f0d1"
+                        font.pixelSize: 12; wrapMode: Text.WordWrap
+                        text: {
+                            var m = kb.advice.betSizing || {}
+                            if (m.status !== "ready") return ""
+                            if (!m.modeledRaiseEdge)
+                                return "No clear raise advantage from these two sizes "
+                                    + "after Monte Carlo sampling uncertainty."
+                            return "MODELED BET/RAISE CANDIDATE: "
+                                + m.best.label + " · spend " + m.best.size
+                                + " chips · modeled advantage "
+                                + kb.signedNumber(m.best.delta,1)
+                                + " chips. Not an optimal-size claim."
+                        }
+                    }
+                    Text {
+                        width: parent.width; color: "#b8c9df"
+                        font.pixelSize: 11; wrapMode: Text.WordWrap
+                        text: "P = pot before acting, C = call cost, X = hero's new chips "
+                            + "spent when raising. Opponent calls X-C more. "
+                            + "EV(raise X) = f×P + (1-f)×[e_call×(P+2X-C) - X]. "
+                            + "Reference EV = e_prior×P for CHECK, "
+                            + "or max(0, e_prior×(P+C)-C) for FOLD/CALL. "
+                            + "Only two exact sizes are considered, never an interpolated optimum. "
+                            + "The caller range is chosen by hole-card type, not the board texture. "
+                            + "Re-raises, future bets, ICM, model error and opponent adaptation "
+                            + "are NOT modeled. No poker action is placed automatically."
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
         id: rangePopup
         parent: Overlay.overlay
         modal: true
