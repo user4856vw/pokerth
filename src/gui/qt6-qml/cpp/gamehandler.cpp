@@ -16,6 +16,7 @@
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
 #include "kibitzer_autoplay_logic.h"
+#include "kibitzer_preflop_policy.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -1459,7 +1460,52 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         sizing.value("status").toString() == QLatin1String("ready") &&
         sizing.value("modelVerdict").toString() == QLatin1String("raise-candidate");
     input.modeledRaiseSize = sizing.value("best").toMap().value("size").toInt();
-    const auto d = KibitzerAutoplay::choose(input);
+    // Preflop requires an opening / limper / raise / shove policy. The
+    // random multiway equity threshold is NOT valid for an unopened pot.
+    const bool isPreflop = m_phaseText == QLatin1String("Preflop");
+    QVariantMap preflopAudit;
+    const auto d = [&]() -> KibitzerAutoplay::Decision {
+        if (!isPreflop) return KibitzerAutoplay::choose(input);
+        KibitzerPreflop::Input p;
+        auto hand=m_game->getCurrentHand();
+        if (!hand) return KibitzerPreflop::choose(p);
+        auto seats=hand->getSeatsList();
+        auto bero=hand->getCurrentBeRo();
+        if (!seats || seats->empty() || !bero)
+            return KibitzerPreflop::choose(p);
+        const auto hero=seats->front();
+        const auto codes=advice.value("heroCodes").toList();
+        if (codes.size()==2) {
+            p.card0=codes.at(0).toInt();
+            p.card1=codes.at(1).toInt();
+        }
+        p.button=hero->getMyButton();
+        p.alive=static_cast<int>(seats->size());
+        p.bigBlind=hand->getSmallBlind()*2;
+        p.highestSet=bero->getHighestSet();
+        p.price=input.price;
+        p.stack=hero->getMyCash();
+        p.minRaise=input.minRaise;
+        p.maxRaise=input.maxRaise;
+        p.hasRaise=p.highestSet>p.bigBlind || p.price>p.bigBlind;
+        auto active=hand->getActivePlayerList();
+        if (active)
+            for (const auto &player : *active) {
+                if (player->getMyID()==0) continue;
+                if (player->getMyAction()==PLAYER_ACTION_CALL) ++p.limpers;
+                if (player->getMyAction()==PLAYER_ACTION_ALLIN) ++p.opponentAllIns;
+            }
+        preflopAudit=QVariantMap{
+            {QStringLiteral("positionButton"),p.button},
+            {QStringLiteral("playersAlive"),p.alive},
+            {QStringLiteral("bigBlind"),p.bigBlind},
+            {QStringLiteral("highestSet"),p.highestSet},
+            {QStringLiteral("limpers"),p.limpers},
+            {QStringLiteral("opponentAllIns"),p.opponentAllIns},
+            {QStringLiteral("facingRaise"),p.hasRaise}
+        };
+        return KibitzerPreflop::choose(p);
+    }();
 
     QString move;
     switch (d.action) {
@@ -1478,7 +1524,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             advice.value("council").toMap().value("headline")},
         {QStringLiteral("councilStance"),
             advice.value("council").toMap().value("stance")},
-        {QStringLiteral("callPrice"), input.price}
+        {QStringLiteral("callPrice"), input.price},
+        {QStringLiteral("preflopReference"), preflopAudit}
     };
 
     bool executed = true;
