@@ -1460,6 +1460,26 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         sizing.value("status").toString() == QLatin1String("ready") &&
         sizing.value("modelVerdict").toString() == QLatin1String("raise-candidate");
     input.modeledRaiseSize = sizing.value("best").toMap().value("size").toInt();
+    input.pot = advice.value("pot").toInt();
+    input.opponents = advice.value("opponents").toInt();
+    auto activeHand = m_game->getCurrentHand();
+    if (activeHand) {
+        auto seats = activeHand->getSeatsList();
+        if (seats && !seats->empty())
+            input.stack = seats->front()->getMyCash();
+        // Look only at this hand/street, never a previous tournament.
+        if (m_kibitzerHandId == activeHand->getMyID()) {
+            for (const QVariant &v : m_kibitzerEvents) {
+                const QVariantMap e=v.toMap();
+                if (e.value("phase").toString()==m_phaseText &&
+                    e.value("action").toString()==QLatin1String("BET/RAISE"))
+                    input.alreadyBetThisStreet=true;
+            }
+        }
+    }
+    input.riverFacingCounterraise =
+        m_phaseText==QLatin1String("River") &&
+        input.alreadyBetThisStreet && input.price>0;
     // Preflop requires an opening / limper / raise / shove policy. The
     // random multiway equity threshold is NOT valid for an unopened pot.
     const bool isPreflop = m_phaseText == QLatin1String("Preflop");
