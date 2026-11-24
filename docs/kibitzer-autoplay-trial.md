@@ -24,7 +24,7 @@ not merely the GUI window. Keep independent backups before replacing an APK
 with a different signature or uninstalling. A malformed journal fails closed
 rather than silently resetting its counters.
 
-Each action's `autoplay` record includes policy version, reason,
+Each action's `autoplay` record includes policy version (v3 for the revised\nriver and A-A rules), reason,
 `provisional`, and the observed Council stance. Preflop records additionally
 include the button index, number of live players, blind, number of limpers
 and all-in opponents, and whether an earlier raise was observed.
@@ -49,11 +49,19 @@ and all-in opponents, and whether an earlier raise was observed.
   probes remain **provisional**, because opponent fold/call behavior is
   still not modeled.
 * **River counterraise:** if an opponent raises after the autoplay policy
-  has already bet/raised on that river, do not enter a recursive unmodeled
-  raise/call war. The current conservative default is fold, marked
-  provisional, until opponent-action-conditioned range/EV logic exists.
-  It can overfold bluffs and even some strong holdings; this is a safety
-  brake, not a solved river strategy.
+  has already bet/raised on the river, do not re-raise without a credible
+  opponent-response model. A **small provisional bluff-catch call** is
+  permitted only when hero's hole cards contribute showdown value AND the
+  call is at most 12% of the existing pot AND at most 6% of remaining
+  stack. These caps are initial risk-control parameters, *not* inferred
+  opponent bluff rates or positive-EV guarantees. Expensive counterraises
+  are folded; the $1,557 river call from the first overnight trial is
+  explicitly covered by regression tests.
+* **Pocket aces preflop:** in the ordinary chip-EV trial, A-A has a specific
+  value-raise/call rule across open, limped, raised, short-stack and
+  already-all-in situations. It is not delegated to the generic
+  all-in-defend/fold heuristic. This does *not* model special tournament
+  payout/ICM cases, such as satellite bubbles.
 * **Other paid decisions:** the Council stance is used where fully
   executable; otherwise the random-range pot-odds call/fold test remains
   a clearly marked provisional fallback. Its limitations still matter.
