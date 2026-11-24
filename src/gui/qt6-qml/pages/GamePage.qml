@@ -186,6 +186,15 @@ Rectangle {
     function autoTrialInBounds() {
         if (!autoTrialEnabled)
             return false
+        // Never continue an unattended experiment after storage fails.
+        // Continuing could silently create results that do not survive restart.
+        var progress = GameTable.kibitzerProgress || {}
+        if ((progress.storageError || "").length > 0) {
+            autoTrialLastReason = "STOPPED: training history storage error: "
+                                  + progress.storageError
+            stopAutoTrial()
+            return false
+        }
         if (Date.now() >= autoTrialDeadline || autoTrialTournaments >= 100) {
             stopAutoTrial()
             return false
