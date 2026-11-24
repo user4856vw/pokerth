@@ -1480,6 +1480,14 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     input.riverFacingCounterraise =
         m_phaseText==QLatin1String("River") &&
         input.alreadyBetThisStreet && input.price>0;
+    if (input.riverFacingCounterraise && !m_players.isEmpty()) {
+        const QVariantMap own=m_players.at(0).toMap();
+        input.hero0=own.value("card0",-1).toInt();
+        input.hero1=own.value("card1",-1).toInt();
+        if (m_boardCardCount==5 && m_boardCards.size()>=5)
+            for (int i=0;i<5;++i)
+                input.riverBoard[static_cast<std::size_t>(i)]=m_boardCards.at(i).toInt();
+    }
     // Preflop requires an opening / limper / raise / shove policy. The
     // random multiway equity threshold is NOT valid for an unopened pot.
     const bool isPreflop = m_phaseText == QLatin1String("Preflop");
