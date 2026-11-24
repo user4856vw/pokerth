@@ -2,6 +2,7 @@
 // Pure C++ so the action mapping can be tested without Qt or a poker engine.
 // Stage A's aggression candidates are NOT unconditional raise instructions.
 #pragma once
+#include "kibitzer_river_defense.h"
 #include <cmath>
 #include <algorithm>
 
@@ -29,6 +30,8 @@ struct Input {
     int stack = 0;
     bool alreadyBetThisStreet = false;
     bool riverFacingCounterraise = false;
+    int hero0 = -1, hero1 = -1;
+    std::array<int,5> riverBoard{{-1,-1,-1,-1,-1}};
 };
 
 struct Decision {
@@ -51,11 +54,22 @@ inline Decision choose(const Input &in)
         return {in.price == 0 ? Action::Check : Action::Fold, 0, true,
                 "model-unavailable-safe-check-or-fold"};
     }
-    // If the opponent has raised our river bet, the uniform-random equity
-    // estimate is NOT conditioned on that action. Never enter a recursive
-    // minimum-raise war, and do not call a major re-raise using that estimate.
-    if (in.riverFacingCounterraise && in.price > 0)
-        return {Action::Fold,0,true,"river-counterraise-unmodeled-protect-stack"};
+    // A river re-raise strongly changes villain's range. The uniform-random
+    // equity estimate is NOT conditioned on that action. Never re-raise it
+    // without a modeled opponent response. Permit a limited, clearly labeled
+    // bluff-catch only when the call is cheap both vs pot and remaining stack,
+    // and hero's hole cards contribute some showdown value. No bluff-rate
+    // assumption is smuggled into the equity estimate.
+    if (in.riverFacingCounterraise && in.price > 0) {
+        const KibitzerRiverDefense::Input river{
+            in.price,in.pot,in.stack,in.hero0,in.hero1,in.riverBoard
+        };
+        if (KibitzerRiverDefense::allowCheapCall(river))
+            return {Action::Call,in.price,true,
+                    "river-counterraise-cheap-showdown-call-no-villain-model"};
+        return {Action::Fold,0,true,
+                "river-counterraise-too-expensive-or-no-showdown-value"};
+    }
 
     if (in.council == CouncilStance::Raise &&
         in.modeledRaiseEdge && in.modeledRaiseSize > 0 &&
