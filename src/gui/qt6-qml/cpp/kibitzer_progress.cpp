@@ -19,6 +19,12 @@
 #include <algorithm>
 #include <vector>
 
+#ifdef Q_OS_ANDROID
+#include <QJniEnvironment>
+#include <QJniObject>
+#include <QNativeInterface>
+#endif
+
 namespace {
 constexpr int kSchema = 1;
 constexpr int kMaxHands = 2500;
@@ -446,8 +452,56 @@ bool GameHandler::kibitzerCopyBackup() const {
     if (!m_kibitzerHistoryWritable || !QGuiApplication::clipboard()) return false;
     const QByteArray bytes=QJsonDocument(makeArchive(m_kibitzerHistory,m_kibitzerTournaments,m_kibitzerSessionId))
                            .toJson(QJsonDocument::Compact);
+#ifdef Q_OS_ANDROID
+    // The Android clipboard uses Binder; large JSON archives cannot be
+    // transferred reliably.  Use the file-picker export instead.
+    if (bytes.size() > 128 * 1024) return false;
+#endif
     QGuiApplication::clipboard()->setText(QString::fromUtf8(bytes));
     return true;
+}
+
+
+// Export without going through Android's clipboard/Binder size limit.
+// The JSON is first staged in app-private cache; a dedicated Android Activity
+// receives the file picker's result and streams bytes into the selected document.
+bool GameHandler::kibitzerExportBackup() const {
+#ifdef Q_OS_ANDROID
+    if (!m_kibitzerHistoryWritable) return false;
+    const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    if (cacheDir.isEmpty() || !QDir().mkpath(cacheDir)) return false;
+    const QString stagedPath = cacheDir + QStringLiteral("/pokerth-kibitzer-export.json");
+
+    const QByteArray json =
+        QJsonDocument(makeArchive(m_kibitzerHistory, m_kibitzerTournaments,
+                                  m_kibitzerSessionId)).toJson(QJsonDocument::Compact);
+    QSaveFile staged(stagedPath);
+    if (!staged.open(QIODevice::WriteOnly)) return false;
+    if (staged.write(json) != json.size() || !staged.commit()) return false;
+
+    auto openPicker = [stagedPath]() {
+        QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (!activity.isValid()) {
+            qWarning() << "[KIBITZER-EXPORT] Android activity unavailable";
+            return;
+        }
+        QJniObject path = QJniObject::fromString(stagedPath);
+        QJniObject::callStaticMethod<void>(
+            "org/pokerth/qml/HistoryExportActivity", "start",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            activity.object(), path.object());
+        QJniEnvironment env;
+        if (env.checkAndClearExceptions())
+            qWarning() << "[KIBITZER-EXPORT] Android file picker could not start";
+    };
+    if (auto *iface = qApp->nativeInterface<QNativeInterface::QAndroidApplication>())
+        iface->runOnAndroidMainThread(openPicker);
+    else
+        openPicker();
+    return true; // staged and picker requested; Android reports save result
+#else
+    return false;
+#endif
 }
 
 bool GameHandler::kibitzerImportBackup(const QString &json) {
