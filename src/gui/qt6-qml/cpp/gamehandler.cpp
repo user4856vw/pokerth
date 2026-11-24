@@ -1474,6 +1474,11 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
                 if (e.value("phase").toString()==m_phaseText &&
                     e.value("action").toString()==QLatin1String("BET/RAISE"))
                     input.alreadyBetThisStreet=true;
+                if (m_phaseText==QLatin1String("River") &&
+                    e.value("phase").toString()==m_phaseText &&
+                    e.value("action").toString()==QLatin1String("CHECK/CALL") &&
+                    e.value("price").toInt()>0)
+                    input.paidRiverCallAlreadyMade=true;
             }
         }
     }
