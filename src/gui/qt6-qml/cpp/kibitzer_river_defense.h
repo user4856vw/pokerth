@@ -18,14 +18,12 @@ inline bool valid(int card) { return card >= 0 && card < 52; }
 inline bool hasShowdownHand(int h0, int h1, const std::array<int,5>& board) {
     if (!valid(h0) || !valid(h1) || h0 == h1) return false;
     std::array<bool,52> seen{};
-    seen[h0]=true;
-    seen[h1]=true;
     std::array<int,4> suitCount{};
     std::array<bool,15> ranks{};
     const std::array<int,7> all{h0,h1,board[0],board[1],board[2],
                                  board[3],board[4]};
     for (int card:all) {
-        if (!valid(card) || (card!=h0 && card!=h1 && seen[card]))
+        if (!valid(card) || seen[card])
             return false;
         seen[card]=true;
         ++suitCount[card/13];
