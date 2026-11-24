@@ -235,6 +235,7 @@ public:
 	Q_INVOKABLE QVariantMap kibitzerReview() const;
 	Q_INVOKABLE QVariantMap kibitzerProgress() const;
 	Q_INVOKABLE bool kibitzerCopyBackup() const;
+	Q_INVOKABLE bool kibitzerExportBackup() const;
 	Q_INVOKABLE bool kibitzerImportBackup(const QString &json);
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
