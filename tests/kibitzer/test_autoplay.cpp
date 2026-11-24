@@ -35,24 +35,37 @@ int main()
     a.price = 0; a.equity = 0.99;
     assert(choose(a).action == Action::Check);
     a.aggressionCandidate = true;
+    assert(choose(a).action == Action::Check); // no pot/size evidence
+    a.pot=400; a.opponents=1; a.stack=500;
+    a.minRaise=20; a.maxRaise=500;
+    assert(choose(a).action == Action::Raise);
+    assert(choose(a).amount == 200); // 1/2 pot, NOT a $20 min bet
     assert(choose(a).provisional);
+    a.alreadyBetThisStreet=true;
+    assert(choose(a).action == Action::Check);
+    a.alreadyBetThisStreet=false;
 
-    // A suggestion to STUDY a raise is not permission to invent its size.
+    // An unpriced Stage-A signal NEVER authorizes a re-raise.
     a.price = 30; a.equity = 0.80; a.required = 0.20;
     a.minRaise = 60; a.maxRaise = 200;
-    assert(choose(a).action == Action::Raise);
-    assert(choose(a).amount == 60 && choose(a).provisional);
-    a.council = CouncilStance::Passive; // explicit passive evidence blocks an unpriced raise
+    assert(choose(a).action == Action::Call);
+    a.council = CouncilStance::Passive;
     assert(choose(a).action == Action::Call);
     a.council = CouncilStance::Abstain;
     a.modeledRaiseEdge = true;
     a.modeledRaiseSize = 80;
-    assert(choose(a).action == Action::Raise); // still only Stage A's provisional min raise
-    assert(choose(a).amount == 60 && choose(a).provisional);
+    assert(choose(a).action == Action::Call);
     a.council = CouncilStance::Raise;
     assert(choose(a).action == Action::Raise);
     assert(choose(a).amount == 80);
     assert(!choose(a).provisional);
+
+    // Regression: no repeated river raises/calls against a re-raising villain
+    // based solely on 90% equity versus randomly dealt hands.
+    a.riverFacingCounterraise=true;
+    assert(choose(a).action == Action::Fold);
+    assert(choose(a).provisional);
+    a.riverFacingCounterraise=false;
 
     a.modeledRaiseSize = 40; // not a legal modeled raise
     assert(choose(a).action == Action::Call);
