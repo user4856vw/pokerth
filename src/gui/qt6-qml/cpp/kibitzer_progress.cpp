@@ -587,12 +587,49 @@ bool GameHandler::kibitzerExportBackup() const {
     if (cacheDir.isEmpty() || !QDir().mkpath(cacheDir)) return false;
     const QString stagedPath = cacheDir + QStringLiteral("/pokerth-kibitzer-export.json");
 
-    const QByteArray json =
-        QJsonDocument(makeArchive(m_kibitzerHistory, m_kibitzerTournaments,
-                                  m_kibitzerSessionId)).toJson(QJsonDocument::Compact);
+    // Stream ALL durable records into a compatible JSON archive. The rolling
+    // in-memory history contains only the latest 2500 hands; it is never a
+    // sufficient source for an extended overnight/month-long export.
     QSaveFile staged(stagedPath);
     if (!staged.open(QIODevice::WriteOnly)) return false;
-    if (staged.write(json) != json.size() || !staged.commit()) return false;
+    const QByteArray prefix = QByteArray("{\\"schemaVersion\\":1,\\"lastSessionId\\":")
+        + QByteArray::number(m_kibitzerSessionId) + ",\\"hands\\":[";
+    if (staged.write(prefix)!=prefix.size()) return false;
+    const QString sourcePath=journalPath();
+    if (QFile::exists(sourcePath)) {
+        for (int pass=0;pass<2;++pass) {
+            if (pass==1 && staged.write("],\\"tournaments\\":[")<0) return false;
+            QFile journal(sourcePath);
+            if (!journal.open(QIODevice::ReadOnly)) return false;
+            bool first=true;
+            while (!journal.atEnd()) {
+                const QByteArray line=journal.readLine();
+                if (!line.endsWith('\\n')) return false;
+                QJsonParseError error;
+                const QJsonDocument record=QJsonDocument::fromJson(line,&error);
+                if (error.error!=QJsonParseError::NoError || !record.isObject()) return false;
+                const QJsonObject item=record.object();
+                const QString type=item.value(QStringLiteral("type")).toString();
+                if (type != (pass==0?QLatin1String("hand"):QLatin1String("tournament")))
+                    continue;
+                if (!item.value(QStringLiteral("value")).isObject()) return false;
+                if (!first && staged.write(",")!=1) return false;
+                first=false;
+                const QByteArray data=QJsonDocument(item.value(QStringLiteral("value")).toObject())
+                                      .toJson(QJsonDocument::Compact);
+                if (staged.write(data)!=data.size()) return false;
+            }
+        }
+    } else {
+        // Brand-new installation before any journal events.
+        const QByteArray data=QJsonDocument(makeArchive(m_kibitzerHistory,
+            m_kibitzerTournaments,m_kibitzerSessionId)).toJson(QJsonDocument::Compact);
+        // The file may be absent only for a fresh, empty archive.
+        if (!m_kibitzerHistory.isEmpty() || !m_kibitzerTournaments.isEmpty()) return false;
+        Q_UNUSED(data);
+        if (staged.write("],\\"tournaments\\":[")<0) return false;
+    }
+    if (staged.write("]}")!=2 || !staged.commit()) return false;
 
     auto openPicker = [stagedPath]() {
         QJniObject activity = QNativeInterface::QAndroidApplication::context();
