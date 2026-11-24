@@ -1546,7 +1546,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     }
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v2")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v3")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},
@@ -1555,6 +1555,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         {QStringLiteral("councilStance"),
             advice.value("council").toMap().value("stance")},
         {QStringLiteral("callPrice"), input.price},
+        {QStringLiteral("remainingStack"), input.stack},
+        {QStringLiteral("riverCounterraise"), input.riverFacingCounterraise},
         {QStringLiteral("preflopReference"), preflopAudit}
     };
 
