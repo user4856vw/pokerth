@@ -1911,9 +1911,28 @@ Rectangle {
                               + "your JSON backup before uninstalling. Restore replaces current history."
                     }
                     TrainerButton {
-                        text: "Copy history JSON"
+                        visible: Qt.platform.os === "android"
+                        text: "Save history JSON to file…"
+                        onClicked: kb.backupMessage = GameTable.kibitzerExportBackup()
+                                   ? "Select a destination in Android's Save file dialog"
+                                   : "Cannot prepare the history export"
+                    }
+                    Text {
+                        visible: Qt.platform.os === "android"
+                        width: parent.width
+                        color: "#b9f0d1"; font.pixelSize: 11; wrapMode: Text.WordWrap
+                        text: "Use Save to file for overnight sessions. The Android clipboard may reject large histories."
+                    }
+                    TrainerButton {
+                        text: "Copy history JSON (small archives)"
                         onClicked: kb.backupMessage = GameTable.kibitzerCopyBackup()
-                                   ? "History copied to clipboard" : "Backup unavailable"
+                                   ? "History sent to clipboard — verify it can be pasted"
+                                   : "Clipboard unavailable or archive too large; use Save to file"
+                    }
+                    Text {
+                        width: parent.width; color: "#f8c6a3"
+                        font.pixelSize: 11; wrapMode: Text.WordWrap
+                        text: kb.backupMessage
                     }
                     TextArea {
                         id: restoreArea

@@ -15,6 +15,8 @@
 #include <berointerface.h>
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
+#include "kibitzer_autoplay_logic.h"
+#include "kibitzer_preflop_policy.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -1412,6 +1414,176 @@ QVariantMap GameHandler::kibitzerHistoricalEvidence(
 
 // A small, deliberately read-only teaching aid. Only public cards and the
 // human player's cards are used. Not available in online games.
+// Test-only local autoplay. The choice is made from the same read-only
+// Kibitzer packet that a human would see; it is cached so the recorder does
+// not silently run Monte Carlo again with a different seed.
+QVariantMap GameHandler::kibitzerAutoplayStep()
+{
+    QVariantMap response;
+    response["executed"] = false;
+    if (!m_game || !m_session || m_spectating || m_localGameOver ||
+        m_waitingForNextHand || !isLocalGameRunning() ||
+        !isMyTurnToAct()) {
+        response["reason"] = QStringLiteral("not-an-active-local-turn");
+        return response;
+    }
+
+    const QVariantMap advice = kibitzerAdvice();
+    KibitzerAutoplay::Input input;
+    input.adviceReady = advice.value("status").toString() == QLatin1String("ready");
+    const QString rangeStatus = advice.value("rangeStatus").toString();
+    input.rangesUsable = rangeStatus == QLatin1String("baseline") ||
+                         rangeStatus == QLatin1String("ready");
+    input.price = std::max(0, m_callAmount);
+    input.minRaise = m_minRaiseAmount;
+    input.maxRaise = m_maxRaiseAmount;
+    input.equity = advice.value("effectiveEquity").toDouble();
+    input.required = advice.value("required").toDouble();
+    input.margin = advice.value("comparisonMargin").toDouble();
+    const QVariantMap councilInfo = advice.value("council").toMap();
+    const QString councilStance = councilInfo.value("stance").toString();
+    if (councilStance == QLatin1String("CHECK"))
+        input.council = KibitzerAutoplay::CouncilStance::Check;
+    else if (councilStance == QLatin1String("CALL"))
+        input.council = KibitzerAutoplay::CouncilStance::Call;
+    else if (councilStance == QLatin1String("FOLD"))
+        input.council = KibitzerAutoplay::CouncilStance::Fold;
+    else if (councilStance == QLatin1String("BET/RAISE"))
+        input.council = KibitzerAutoplay::CouncilStance::Raise;
+    else if (councilStance.startsWith(QLatin1String("PASSIVE LINE")))
+        input.council = KibitzerAutoplay::CouncilStance::Passive;
+    const QVariantMap aggression = advice.value("aggression").toMap();
+    input.aggressionCandidate = !aggression.isEmpty() &&
+        aggression.value("status").toString() != QLatin1String("none");
+    const QVariantMap sizing = advice.value("betSizing").toMap();
+    input.modeledRaiseEdge =
+        sizing.value("status").toString() == QLatin1String("ready") &&
+        sizing.value("modelVerdict").toString() == QLatin1String("raise-candidate");
+    input.modeledRaiseSize = sizing.value("best").toMap().value("size").toInt();
+    input.pot = advice.value("pot").toInt();
+    input.opponents = advice.value("opponents").toInt();
+    auto activeHand = m_game->getCurrentHand();
+    if (activeHand) {
+        auto seats = activeHand->getSeatsList();
+        if (seats && !seats->empty())
+            input.stack = seats->front()->getMyCash();
+        // Look only at this hand/street, never a previous tournament.
+        if (m_kibitzerHandId == activeHand->getMyID()) {
+            for (const QVariant &v : m_kibitzerEvents) {
+                const QVariantMap e=v.toMap();
+                if (e.value("phase").toString()==m_phaseText &&
+                    e.value("action").toString()==QLatin1String("BET/RAISE"))
+                    input.alreadyBetThisStreet=true;
+                if (m_phaseText==QLatin1String("River") &&
+                    e.value("phase").toString()==m_phaseText &&
+                    e.value("action").toString()==QLatin1String("CHECK/CALL") &&
+                    e.value("price").toInt()>0)
+                    input.paidRiverCallAlreadyMade=true;
+            }
+        }
+    }
+    input.riverFacingCounterraise =
+        m_phaseText==QLatin1String("River") &&
+        input.alreadyBetThisStreet && input.price>0;
+    if (input.riverFacingCounterraise && !m_players.isEmpty()) {
+        const QVariantMap own=m_players.at(0).toMap();
+        input.hero0=own.value("card0",-1).toInt();
+        input.hero1=own.value("card1",-1).toInt();
+        if (m_boardCardCount==5 && m_boardCards.size()>=5)
+            for (int i=0;i<5;++i)
+                input.riverBoard[static_cast<std::size_t>(i)]=m_boardCards.at(i).toInt();
+    }
+    // Preflop requires an opening / limper / raise / shove policy. The
+    // random multiway equity threshold is NOT valid for an unopened pot.
+    const bool isPreflop = m_phaseText == QLatin1String("Preflop");
+    QVariantMap preflopAudit;
+    const auto d = [&]() -> KibitzerAutoplay::Decision {
+        if (!isPreflop) return KibitzerAutoplay::choose(input);
+        KibitzerPreflop::Input p;
+        auto hand=m_game->getCurrentHand();
+        if (!hand) return KibitzerPreflop::choose(p);
+        auto seats=hand->getSeatsList();
+        auto bero=hand->getCurrentBeRo();
+        if (!seats || seats->empty() || !bero)
+            return KibitzerPreflop::choose(p);
+        const auto hero=seats->front();
+        // Read ONLY our own face-up hand from the game view. Preflop chart
+        // must still work if the Monte Carlo adviser is temporarily unavailable.
+        if (!m_players.isEmpty()) {
+            const QVariantMap own=m_players.at(0).toMap();
+            p.card0=own.value("card0",-1).toInt();
+            p.card1=own.value("card1",-1).toInt();
+        }
+        p.button=hero->getMyButton();
+        p.alive=static_cast<int>(seats->size());
+        p.bigBlind=hand->getSmallBlind()*2;
+        p.highestSet=bero->getHighestSet();
+        p.price=input.price;
+        p.stack=hero->getMyCash();
+        p.minRaise=input.minRaise;
+        p.maxRaise=input.maxRaise;
+        p.hasRaise=p.highestSet>p.bigBlind || p.price>p.bigBlind;
+        auto active=hand->getActivePlayerList();
+        if (active)
+            for (const auto &player : *active) {
+                if (player->getMyID()==0) continue;
+                if (player->getMyAction()==PLAYER_ACTION_CALL) ++p.limpers;
+                if (player->getMyAction()==PLAYER_ACTION_ALLIN) ++p.opponentAllIns;
+            }
+        preflopAudit=QVariantMap{
+            {QStringLiteral("positionButton"),p.button},
+            {QStringLiteral("playersAlive"),p.alive},
+            {QStringLiteral("bigBlind"),p.bigBlind},
+            {QStringLiteral("highestSet"),p.highestSet},
+            {QStringLiteral("limpers"),p.limpers},
+            {QStringLiteral("opponentAllIns"),p.opponentAllIns},
+            {QStringLiteral("facingRaise"),p.hasRaise}
+        };
+        return KibitzerPreflop::choose(p);
+    }();
+
+    QString move;
+    switch (d.action) {
+    case KibitzerAutoplay::Action::Check: move = QStringLiteral("CHECK"); break;
+    case KibitzerAutoplay::Action::Call:  move = QStringLiteral("CALL"); break;
+    case KibitzerAutoplay::Action::Fold:  move = QStringLiteral("FOLD"); break;
+    case KibitzerAutoplay::Action::Raise: move = QStringLiteral("BET/RAISE"); break;
+    }
+    m_kibitzerAutoSnapshot = advice;
+    m_kibitzerAutoMetadata = QVariantMap{
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v3")},
+        {QStringLiteral("choice"), move},
+        {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
+        {QStringLiteral("provisional"), d.provisional},
+        {QStringLiteral("councilHeadline"),
+            advice.value("council").toMap().value("headline")},
+        {QStringLiteral("councilStance"),
+            advice.value("council").toMap().value("stance")},
+        {QStringLiteral("callPrice"), input.price},
+        {QStringLiteral("remainingStack"), input.stack},
+        {QStringLiteral("riverCounterraise"), input.riverFacingCounterraise},
+        {QStringLiteral("preflopReference"), preflopAudit}
+    };
+
+    bool executed = true;
+    switch (d.action) {
+    case KibitzerAutoplay::Action::Check:
+    case KibitzerAutoplay::Action::Call:
+        // A racing raise must NEVER silently turn a check into a costly call.
+        executed = call(input.price);
+        break;
+    case KibitzerAutoplay::Action::Fold: fold(); break;
+    case KibitzerAutoplay::Action::Raise: raise(d.amount); break;
+    }
+    m_kibitzerAutoMetadata.clear();
+    m_kibitzerAutoSnapshot.clear();
+    response["executed"] = executed;
+    response["choice"] = move;
+    response["provisional"] = d.provisional;
+    response["reason"] = QString::fromLatin1(d.reason);
+    return response;
+}
+
 QVariantMap GameHandler::kibitzerAdvice() const
 {
     QVariantMap out;
@@ -1962,7 +2134,8 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
     const int price = std::max(0, std::min(heroPlayer->getMyCash(),
                                          bero->getHighestSet() - heroPlayer->getMySet()));
     const int pot = std::max(0, board->getPot() + board->getSets());
-    const QVariantMap estimate = kibitzerAdvice();
+    const QVariantMap estimate = m_kibitzerAutoMetadata.isEmpty()
+        ? kibitzerAdvice() : m_kibitzerAutoSnapshot;
     bool hasAllIn = false;
     auto active = hand->getActivePlayerList();
     if (active) {
@@ -2007,6 +2180,8 @@ void GameHandler::recordKibitzerAction(const QString &chosenAction, int amount)
 
     QVariantMap event;
     event["phase"] = m_phaseText;
+    if (!m_kibitzerAutoMetadata.isEmpty())
+        event["autoplay"] = m_kibitzerAutoMetadata;
     event["cards"] = estimate.value("hero", QStringLiteral("?"));
     event["action"] = chosenAction;
     event["amount"] = amount;
@@ -2163,9 +2338,13 @@ void GameHandler::finalizeKibitzerTournament(bool completed, int place, bool tie
     row["lastStack"] = m_kibitzerTournamentLastCash;
     row["finishedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     // An interrupted/abandoned tournament never receives a fabricated rank.
+    // Preserve the complete series on disk, not just the rolling UI window.
+    if (!appendKibitzerJournalRecord(QStringLiteral("tournament"),row)) {
+        rebuildKibitzerProgress();
+        return;
+    }
     m_kibitzerTournaments.append(row);
     while (m_kibitzerTournaments.size() > 1000) m_kibitzerTournaments.removeFirst();
-    saveKibitzerProgress();
     rebuildKibitzerProgress();
 }
 

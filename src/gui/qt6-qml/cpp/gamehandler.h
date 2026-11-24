@@ -235,10 +235,13 @@ public:
 	Q_INVOKABLE QVariantMap kibitzerReview() const;
 	Q_INVOKABLE QVariantMap kibitzerProgress() const;
 	Q_INVOKABLE bool kibitzerCopyBackup() const;
+	Q_INVOKABLE bool kibitzerExportBackup() const;
 	Q_INVOKABLE bool kibitzerImportBackup(const QString &json);
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
 	Q_INVOKABLE QVariantMap kibitzerAdvice() const;
+	// Execute one local-only, auditable autonomous Kibitzer decision.
+	Q_INVOKABLE QVariantMap kibitzerAutoplayStep();
 	int kibitzerMonteCarloRuns() const { return m_kibitzerMonteCarloRuns; }
 	Q_INVOKABLE bool kibitzerSetMonteCarloRuns(int requested);
 	Q_INVOKABLE QVariantList kibitzerOpponentRanges() const;
@@ -593,7 +596,8 @@ private:
 	// as well as the history as changed.
 	void refreshTableChatPalette();
 	void loadKibitzerProgress();
-	void saveKibitzerProgress();
+	void saveKibitzerProgress(); // atomic rewrite, used only for v1 migration / import
+	bool appendKibitzerJournalRecord(const QString &type, const QVariantMap &value);
 	void rebuildKibitzerProgress();
 	void persistKibitzerHand();
 	QVariantMap kibitzerHistoricalEvidence(const int hole[2], const int board[5],
@@ -681,6 +685,9 @@ private:
 	QHash<int, QString> m_kibitzerManualRanges;
 	QHash<int, QString> m_kibitzerContinueHalfPot;
 	QHash<int, QString> m_kibitzerContinueFullPot;
+	// Only populated during an autonomous action; never persisted except as an event.
+	QVariantMap m_kibitzerAutoSnapshot;
+	QVariantMap m_kibitzerAutoMetadata;
 	QVariantMap m_kibitzerProgress;
 	QVariantList m_kibitzerHistory;
 	QVariantList m_kibitzerTournaments;
