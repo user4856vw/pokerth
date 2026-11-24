@@ -30,6 +30,7 @@ struct Input {
     int stack = 0;
     bool alreadyBetThisStreet = false;
     bool riverFacingCounterraise = false;
+    bool paidRiverCallAlreadyMade = false;
     int hero0 = -1, hero1 = -1;
     std::array<int,5> riverBoard{{-1,-1,-1,-1,-1}};
 };
@@ -64,7 +65,8 @@ inline Decision choose(const Input &in)
         const KibitzerRiverDefense::Input river{
             in.price,in.pot,in.stack,in.hero0,in.hero1,in.riverBoard
         };
-        if (KibitzerRiverDefense::allowCheapCall(river))
+        if (in.opponents==1 && !in.paidRiverCallAlreadyMade &&
+            KibitzerRiverDefense::allowCheapCall(river))
             return {Action::Call,in.price,true,
                     "river-counterraise-cheap-showdown-call-no-villain-model"};
         return {Action::Fold,0,true,
