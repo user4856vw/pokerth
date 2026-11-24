@@ -1538,7 +1538,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     }
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v1")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v2")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},
