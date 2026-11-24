@@ -63,6 +63,7 @@ int main()
     // Regression: no repeated river raises/calls against a re-raising villain
     // based solely on 90% equity versus randomly dealt hands.
     a.riverFacingCounterraise=true;
+    a.equity=0.90; a.price=1557; a.pot=5451; a.margin=0.12;
     assert(choose(a).action == Action::Fold);
     assert(choose(a).provisional);
     a.riverFacingCounterraise=false;
