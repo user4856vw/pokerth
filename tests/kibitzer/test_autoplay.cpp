@@ -66,6 +66,15 @@ int main()
     a.equity=0.90; a.price=1557; a.pot=5451; a.margin=0.12;
     assert(choose(a).action == Action::Fold);
     assert(choose(a).provisional);
+    // On the same AA / J-Q-4-4-5 river, a very cheap re-raise
+    // can be called as a PROVISIONAL bluff-catch; not a second raise.
+    a.hero0=38; a.hero1=12;
+    a.riverBoard={{48,23,2,15,29}};
+    a.pot=1200; a.stack=1000; a.price=20;
+    assert(choose(a).action == Action::Call);
+    assert(choose(a).amount == 20 && choose(a).provisional);
+    a.price=100; // too expensive relative to remaining stack
+    assert(choose(a).action == Action::Fold);
     a.riverFacingCounterraise=false;
 
     a.modeledRaiseSize = 40; // not a legal modeled raise
