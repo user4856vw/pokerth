@@ -262,11 +262,13 @@ void GameHandler::saveKibitzerProgress() {
     const QString path=journalPath();
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
         m_kibitzerStorageError=QStringLiteral("Cannot create history journal directory.");
+        m_kibitzerHistoryWritable=false;
         return;
     }
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         m_kibitzerStorageError=QStringLiteral("Cannot create history journal.");
+        m_kibitzerHistoryWritable=false;
         return;
     }
     auto write = [&file](const QString &type,const QVariantList &list) {
@@ -281,6 +283,7 @@ void GameHandler::saveKibitzerProgress() {
         !file.commit()) {
         file.cancelWriting();
         m_kibitzerStorageError=QStringLiteral("Cannot atomically write history journal.");
+        m_kibitzerHistoryWritable=false;
         return;
     }
     m_kibitzerStorageError.clear();
@@ -685,6 +688,9 @@ bool GameHandler::kibitzerImportBackup(const QString &json) {
         rebuildKibitzerProgress();
         return false;
     }
+    // The journal retains every imported record, but the dashboard is bounded.
+    while (m_kibitzerHistory.size()>kMaxHands) m_kibitzerHistory.removeFirst();
+    while (m_kibitzerTournaments.size()>kMaxTournaments) m_kibitzerTournaments.removeFirst();
     rebuildKibitzerProgress();
     return true;
 }
