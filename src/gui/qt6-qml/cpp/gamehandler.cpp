@@ -2301,9 +2301,13 @@ void GameHandler::finalizeKibitzerTournament(bool completed, int place, bool tie
     row["lastStack"] = m_kibitzerTournamentLastCash;
     row["finishedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     // An interrupted/abandoned tournament never receives a fabricated rank.
+    // Preserve the complete series on disk, not just the rolling UI window.
+    if (!appendKibitzerJournalRecord(QStringLiteral("tournament"),row)) {
+        rebuildKibitzerProgress();
+        return;
+    }
     m_kibitzerTournaments.append(row);
     while (m_kibitzerTournaments.size() > 1000) m_kibitzerTournaments.removeFirst();
-    saveKibitzerProgress();
     rebuildKibitzerProgress();
 }
 
