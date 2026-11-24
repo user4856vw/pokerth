@@ -4,6 +4,7 @@
 #include "kibitzer_training_stats.h"
 #include "kibitzer_tournament_stats.h"
 #include <QClipboard>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
