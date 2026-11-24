@@ -56,7 +56,6 @@ inline bool openRange(const Cards &c, Position p) {
     const int h=c.hi, l=c.lo;
     if (h < 2) return false;
     const bool ace = h==14;
-    const bool broadway = h>=10 && l>=10;
     if (p==Position::BigBlind) return false; // check a free walk
     if (p==Position::Early)
         return (c.pair && h>=8) || (ace && (c.suited ? l>=11 : l>=12))
