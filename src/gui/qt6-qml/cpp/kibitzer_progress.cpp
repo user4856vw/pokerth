@@ -22,7 +22,6 @@
 #ifdef Q_OS_ANDROID
 #include <QJniEnvironment>
 #include <QJniObject>
-#include <QNativeInterface>
 #endif
 
 namespace {
