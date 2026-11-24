@@ -68,6 +68,12 @@
              liegt nur im Package-Source-Dir des QML-Clients. Im Widget-APK ist
              die Deklaration damit wirkungslos, aber harmlos - AndroidConnection-
              Service wird dort nie aufgerufen. -->
+        <!-- User-driven JSON save through Android Storage Access Framework. -->
+        <activity
+            android:name="org.pokerth.qml.HistoryExportActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+
         <service
             android:name="org.pokerth.qml.ConnectionService"
             android:exported="false"
