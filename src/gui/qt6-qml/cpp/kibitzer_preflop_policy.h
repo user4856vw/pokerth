@@ -120,6 +120,30 @@ inline Decision choose(const Input &in) {
                          double(in.bigBlind);
     const bool multiwayShove=in.opponentAllIns>1;
 
+    // Absolute pocket aces are a special case in the ordinary chip-EV
+    // local tournament. Facing one or several all-ins, call rather than
+    // incorrectly applying the tight "unknown villain" fold branch.
+    // If a legal value raise exists, make it; otherwise call, never fold.
+    // Satellite bubble / ICM exceptions are NOT modeled in this baseline.
+    if (c.pair && c.hi==14) {
+        if (in.opponentAllIns>0)
+            return {in.price==0?Action::Check:Action::Call,in.price,true,
+                    "preflop-aa-allin-continue-no-icm"};
+        if (in.minRaise>0 && in.maxRaise>=in.minRaise) {
+            int desired=in.price + in.bigBlind*3/2;
+            if (in.hasRaise)
+                desired=in.price + 2*std::max(in.bigBlind,in.highestSet);
+            else if (in.limpers>0)
+                desired=in.price + (4+std::min(in.limpers,4))*in.bigBlind;
+            if (stackBB<=12.0)
+                desired=in.maxRaise;
+            const int size=std::max(in.minRaise,std::min(desired,in.maxRaise));
+            return {Action::Raise,size,true,"preflop-aa-value-raise-no-icm"};
+        }
+        return {in.price==0?Action::Check:Action::Call,in.price,true,
+                "preflop-aa-legal-raise-unavailable-call"};
+    }
+
     // Do not use uniform-random multiway showdown equity to call a shove.
     // A ten-player 22 preflop stack-off is NOT a 1-on-1 pot-odds decision.
     if (in.opponentAllIns>0) {
