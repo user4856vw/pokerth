@@ -71,6 +71,37 @@ int main() {
         assert(choose(i).action==Action::Raise &&
                choose(i).amount==160);
     }
+    // Strong invariant: all six pocket-aces combinations continue preflop
+    // in a standard chip-EV tournament, including versus several all-ins.
+    {
+        const int aces[]={12,25,38,51};
+        for (int x=0;x<4;++x) for (int y=x+1;y<4;++y) {
+            for (int scenario=0;scenario<6;++scenario) {
+                auto i=baseline(aces[x],aces[y],scenario%2 ? 1 : 4);
+                switch (scenario) {
+                    case 0: break; // unopened
+                    case 1: i.limpers=4; break;
+                    case 2: i.hasRaise=true; i.highestSet=200;
+                            i.price=200; i.minRaise=380; break;
+                    case 3: i.hasRaise=true; i.highestSet=5000;
+                            i.price=5000; i.minRaise=0; i.maxRaise=0;
+                            i.opponentAllIns=3; break;
+                    case 4: i.hasRaise=true; i.highestSet=2500;
+                            i.price=2500; i.minRaise=6000; i.maxRaise=5000;
+                            break; // raise unavailable; call must remain legal
+                    case 5: i.button=3; i.price=0;
+                            i.minRaise=0; i.maxRaise=0; break; // walk
+                }
+                const auto d=choose(i);
+                assert(d.action!=Action::Fold);
+                if (i.price>0)
+                    assert(d.action==Action::Call || d.action==Action::Raise);
+                if (d.action==Action::Call) assert(d.amount==i.price);
+                if (d.action==Action::Raise)
+                    assert(d.amount>=i.minRaise && d.amount<=i.maxRaise);
+            }
+        }
+    }
     // Fail closed on invalid card code and illegal raise bounds.
     {
         auto i=baseline(-1,37,4);
