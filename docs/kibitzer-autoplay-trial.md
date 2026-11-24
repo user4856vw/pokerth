@@ -53,7 +53,9 @@ and all-in opponents, and whether an earlier raise was observed.
   opponent-response model. A **small provisional bluff-catch call** is
   permitted only when hero's hole cards contribute showdown value AND the
   call is at most 12% of the existing pot AND at most 6% of remaining
-  stack. These caps are initial risk-control parameters, *not* inferred
+  stack. Only heads-up situations qualify, and only one paid call per
+  river sequence is allowed under this shortcut. These caps are initial
+  risk-control parameters, *not* inferred
   opponent bluff rates or positive-EV guarantees. Expensive counterraises
   are folded; the $1,557 river call from the first overnight trial is
   explicitly covered by regression tests.
