@@ -3,6 +3,7 @@
 // Stage A's aggression candidates are NOT unconditional raise instructions.
 #pragma once
 #include <cmath>
+#include <algorithm>
 
 namespace KibitzerAutoplay {
 
