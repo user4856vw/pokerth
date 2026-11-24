@@ -14,7 +14,7 @@ The extra `autoplay` field includes the policy version, action reason, whether
 an inference/fallback was required, Council headline/stance, and the
 contemporaneous recommendation. The original Monte Carlo snapshot is reused
 by the recorder to avoid a second, different random calculation at action time.
-Use **K → History / Progress → Copy backup** to export the results. Existing
+On Android, use **K → PROGRESS → Local history backup → Save history JSON to file…** to export the results into a user-selected folder (such as Downloads). This uses Android's Storage Access Framework rather than the clipboard and works with larger archives. On other platforms the Copy history JSON option remains available. Existing
 archive retention limits still apply (up to 2,500 settled hands / 1,000 finishes):
 export regularly rather than assuming unlimited month-long retention.
 
