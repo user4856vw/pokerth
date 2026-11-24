@@ -18,7 +18,7 @@ jobs:
       - name: Compile and run isolated policy and review tests
         run: |
           set -eu
-          for t in autoplay preflop_policy review aggression tournament_stats mc_config pro_matcher; do
+          for t in autoplay preflop_policy river_defense review aggression tournament_stats mc_config pro_matcher; do
             g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
               -I src/gui/qt6-qml/cpp \
               "tests/kibitzer/test_${t}.cpp" -o "/tmp/kibitzer-${t}"
