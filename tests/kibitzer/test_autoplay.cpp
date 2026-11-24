@@ -73,6 +73,11 @@ int main()
     a.pot=1200; a.stack=1000; a.price=20;
     assert(choose(a).action == Action::Call);
     assert(choose(a).amount == 20 && choose(a).provisional);
+    a.opponents=2; // a multiway raise is not treated like a routine bluff
+    assert(choose(a).action == Action::Fold);
+    a.opponents=1; a.paidRiverCallAlreadyMade=true;
+    assert(choose(a).action == Action::Fold); // one paid bluff-catch maximum
+    a.paidRiverCallAlreadyMade=false;
     a.price=100; // too expensive relative to remaining stack
     assert(choose(a).action == Action::Fold);
     a.riverFacingCounterraise=false;
