@@ -596,7 +596,8 @@ private:
 	// as well as the history as changed.
 	void refreshTableChatPalette();
 	void loadKibitzerProgress();
-	void saveKibitzerProgress();
+	void saveKibitzerProgress(); // atomic rewrite, used only for v1 migration / import
+	bool appendKibitzerJournalRecord(const QString &type, const QVariantMap &value);
 	void rebuildKibitzerProgress();
 	void persistKibitzerHand();
 	QVariantMap kibitzerHistoricalEvidence(const int hole[2], const int board[5],
