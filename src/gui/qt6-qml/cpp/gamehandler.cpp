@@ -1494,10 +1494,12 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         if (!seats || seats->empty() || !bero)
             return KibitzerPreflop::choose(p);
         const auto hero=seats->front();
-        const auto codes=advice.value("heroCodes").toList();
-        if (codes.size()==2) {
-            p.card0=codes.at(0).toInt();
-            p.card1=codes.at(1).toInt();
+        // Read ONLY our own face-up hand from the game view. Preflop chart
+        // must still work if the Monte Carlo adviser is temporarily unavailable.
+        if (!m_players.isEmpty()) {
+            const QVariantMap own=m_players.at(0).toMap();
+            p.card0=own.value("card0",-1).toInt();
+            p.card1=own.value("card1",-1).toInt();
         }
         p.button=hero->getMyButton();
         p.alive=static_cast<int>(seats->size());
