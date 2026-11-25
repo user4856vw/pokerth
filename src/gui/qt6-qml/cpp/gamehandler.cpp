@@ -18,6 +18,7 @@
 #include "kibitzer_autoplay_logic.h"
 #include "kibitzer_preflop_policy.h"
 #include "kibitzer_preflop_position.h"
+#include "kibitzer_evidence_open_ranges.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -1590,8 +1591,45 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             {QStringLiteral("facingRaise"),p.hasRaise},
             {QStringLiteral("heroPreviouslyRaised"),p.heroPreviouslyRaised}
         };
+        // Shadow-only external comparison. It never changes the decision.
+        // No 10-max, heads-up, BB, limped pots or arbitrary stack extrapolation.
+        const double stackBB=p.bigBlind>0
+            ?double(p.stack+std::max(0,p.heroCommitted))/p.bigBlind:0.0;
+        const auto external=KibitzerEvidence::lookup(
+            p.card0,p.card1,p.alive,p.roleIndex,stackBB,
+            p.hasRaise,p.limpers,p.opponentAllIns);
+        preflopAudit["externalOpeningReference"]=QVariantMap{
+            {QStringLiteral("sourceId"),QString::fromLatin1(KibitzerEvidence::kSourceId)},
+            {QStringLiteral("status"),QString::fromLatin1(external.status)},
+            {QStringLiteral("applicable"),external.applicable},
+            {QStringLiteral("referenceBB"),external.referenceBB},
+            {QStringLiteral("referencePosition"),QString::fromLatin1(external.referencePosition)},
+            {QStringLiteral("openingFrequency"),
+                external.applicable?QVariant(double(external.frequencyThousandths)/1000.0):QVariant()}
+        };
         return KibitzerPreflop::choose(p);
     }();
+
+    // Only near-pure reference actions are comparable as a categorical
+    // disagreement. A mixed strategy is recorded as mixed, not an error.
+    if (isPreflop) {
+        QVariantMap benchmark=preflopAudit.value("externalOpeningReference").toMap();
+        if (benchmark.value("applicable").toBool()) {
+            const double f=benchmark.value("openingFrequency").toDouble();
+            if (f>=0.95 || f<=0.05) {
+                const bool sourceRaise=f>=0.95;
+                const bool policyRaise=d.action==KibitzerAutoplay::Action::Raise;
+                benchmark["policyAgreement"]=sourceRaise==policyRaise
+                    ?QStringLiteral("agrees-with-strong-reference")
+                    :QStringLiteral("diverges-from-strong-reference");
+                // Not a CLEAR MISTAKE: source omits ICM, opponent tendencies,
+                // and site-specific blind/ante/payment assumptions.
+            } else {
+                benchmark["policyAgreement"]=QStringLiteral("mixed-frequency-no-verdict");
+            }
+            preflopAudit["externalOpeningReference"]=benchmark;
+        }
+    }
 
     QString move;
     switch (d.action) {
@@ -1602,7 +1640,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     }
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v4")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v5-shadow")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},
