@@ -4,7 +4,7 @@ on:
   push:
     branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4]
   pull_request:
-    branches: [pokerth-trainer-v3]
+    branches: [pokerth-trainer-v3, feature/kibitzer-eat-own-food-loop]
 
 permissions:
   contents: read
