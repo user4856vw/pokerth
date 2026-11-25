@@ -85,3 +85,50 @@ Actions to simulate the app while it is closed.
 
 Any engine freeze, app suspension or storage error remains visible as a
 shortfall in tournament/action counts; AUTO TEST does not fabricate hands.
+
+## v4 experiment: configurable preflop ranges (separate draft branch)
+
+The v3 branch and its overnight run are **not** modified. The v4 draft PR
+adds the following independent parameters in **K → AUTO PREFLOP**:
+
+* **Value-only three-bet width:** 5%, 6% (default) or 7% of the 1,326
+  physically distinct two-card combinations. Whole hand classes are used:
+  * 5%: 99+, AJs+, KQs, AKo = 64/1326 = 4.83%
+  * 6%: above plus AQo, KJs = 80/1326 = 6.03%
+  * 7%: above plus 88, ATs, KTs = 94/1326 = 7.09%
+  The numeric labels are approximate because suit-equivalent classes cannot
+  be split without introducing arbitrary suit-dependent decisions. No bluff
+  or semi-bluff 3-bets are added to this chart. A separate wider range
+  governs **flat calls** against affordable raises, so tightening value
+  three-bets does not automatically fold AQo. The configured chart is used
+  for the **first** re-raise only: after hero has already raised and receives
+  another raise, the controller uses a much tighter separate continue/call
+  rule, not the same 6% range for a speculative 4-bet or 5-bet.
+* **Short-stack risk control:** tight (-10), balanced (default) or wide
+  (+10 percentage points). Before contextual adjustments, the balanced
+  **ranked** shove/call ranges target the top ~25% at 10BB, ~40% at 5BB,
+  ~62% at 2BB and ~78% at 1BB. The width increases in short-handed
+  situations and near the button; it decreases with early position, multiple
+  limpers, raises and all-in opponents. The rankings are deterministic
+  heuristics, **not** actual ICM-optimal Nash push/fold tables. The chart is
+  used BEFORE the generic preflop fold, so a KTo at 0.87BB has a reasoned
+  chance to continue rather than hitting an automatic fold wall.
+
+The controller now derives the number and dealer-relative order of **live**
+seats from the engine. PokerTH getMyButton()==0 means the player has no
+dealer/SB/BB marker, not that the player is in early position. Each
+preflop decision records dealer seat, relative seat, living-player count,
+big blind, hero's committed chips, pot, chosen three-bet range and
+short-stack adjustment in the JSON for later audit.
+
+Regression tests include physical-combination counts (64/80/94),
+neighboring hands and 1,326-combo monotonic range widening, exact
+Kc-Th at 0.87BB and Ah-As re-raise fold incidents, 2/3/4-player live seat
+order, all six pocket-aces combinations, and weak hands kept outside
+the emergency push range when sufficient chips remain.
+
+**Known limitations:** no Nash or ICM solver, no action-conditioned opponent
+range for the villain, no position-specific *value three-bet* optimization,
+and no claim that a fixed 5–7% 3-bet chart is universally optimal. These
+are controlled baselines for the overnight tests; do not change settings
+during an experiment.

@@ -1,5 +1,6 @@
 #include "kibitzer_preflop_policy.h"
 #include <cassert>
+#include <array>
 #include <iostream>
 
 using namespace KibitzerPreflop;
@@ -42,9 +43,13 @@ int main() {
     }
     // Open raise changes the situation: do not use equity vs 9 random hands.
     {
-        auto i=baseline(0,39,1);
+        auto i=baseline(5,39,1); // 7d 2c: never defend an expensive raise
         i.hasRaise=true; i.highestSet=100; i.price=100; i.minRaise=180;
         assert(choose(i).action==Action::Fold);
+        // Small pocket pairs may flat-call deep, but must not 3-bet as a
+        // value hand merely because their random showdown equity is high.
+        i.card0=0; i.card1=39;
+        assert(choose(i).action!=Action::Raise);
         i.card0=12; i.card1=37;
         auto d=choose(i);
         assert(d.action==Action::Raise && d.amount>=180);
@@ -101,6 +106,97 @@ int main() {
                     assert(d.amount>=i.minRaise && d.amount<=i.maxRaise);
             }
         }
+    }
+    // Overnight v2 incident at 23:47 UTC: Kc-Th, less than 1BB,
+    // blinds 2560/5120, 1880 to call into a pot of 7680.
+    // Verify a whole neighborhood, rather than special-case KTo.
+    {
+        auto i=baseline(50,21,0);
+        i.roleIndex=0; i.alive=2; i.bigBlind=5120;
+        i.stack=4440; i.heroCommitted=0;
+        i.price=1880; i.pot=7680; i.highestSet=5120;
+        i.minRaise=0; i.maxRaise=0;
+        for (const auto &hole : {
+                std::array<int,2>{50,21}, // Kc Th
+                std::array<int,2>{50,22}, // Kc Jh
+                std::array<int,2>{49,21}, // Qc Th
+                std::array<int,2>{49,22}, // Qc Jh
+                std::array<int,2>{48,21}, // Jc Th
+                std::array<int,2>{12,20}, // Ad 9h
+                std::array<int,2>{8,21}   // Td Th
+            }) {
+            i.card0=hole[0]; i.card1=hole[1];
+            const auto d=choose(i);
+            assert(d.action==Action::Call && d.amount==1880);
+        }
+    }
+    // Other side of the late push/fold boundary: 72o with 5BB in a
+    // ten-handed early seat should still be outside the ranked shove chart.
+    {
+        auto i=baseline(5,39,0);
+        i.roleIndex=3; i.alive=10;
+        i.stack=100; i.heroCommitted=0; i.bigBlind=20;
+        i.price=20; i.pot=30;
+        assert(choose(i).action==Action::Fold);
+    }
+    // Overnight v2 incident at 23:49 UTC: Ah As originally raised,
+    // then folded to 2259 into a 3461 pot. That fold is prohibited.
+    {
+        auto i=baseline(25,38,0);
+        i.alive=10; i.roleIndex=4;
+        i.stack=4799; i.heroCommitted=201;
+        i.hasRaise=true; i.price=2259; i.pot=3461;
+        i.highestSet=2460; i.minRaise=0; i.maxRaise=0;
+        const auto d=choose(i);
+        assert(d.action==Action::Call && d.amount==2259);
+    }
+    // Configurable value 3-bet chart: threshold classes immediately on
+    // each side of the 5/6/7% boundary. No unpriced semi-bluff expansion.
+    {
+        auto i=baseline(50,48,0); // Kc Jc suited
+        i.alive=10; i.roleIndex=0;
+        i.price=100; i.highestSet=100; i.hasRaise=true;
+        i.minRaise=180;
+        i.valueThreeBetPercent=5;
+        assert(choose(i).action!=Action::Raise);
+        i.valueThreeBetPercent=6;
+        assert(choose(i).action==Action::Raise);
+        i.card0=6; i.card1=19; // 8d 8h
+        assert(choose(i).action!=Action::Raise);
+        i.valueThreeBetPercent=7;
+        assert(choose(i).action==Action::Raise);
+        i.card0=50; i.card1=8; // Kc Td (not in value 3-bet chart)
+        assert(choose(i).action!=Action::Raise);
+    }
+    // A three-bet chart does NOT authorize a fourth/fifth bet.
+    // Following our own preflop raise, villain's re-raise is a new signal.
+    {
+        auto i=baseline(38,10,1); // As Qd, the default 6% value 3-bet
+        i.alive=4; i.roleIndex=0; i.hasRaise=true;
+        i.highestSet=200; i.price=200; i.minRaise=380;
+        assert(choose(i).action==Action::Raise);
+        i.heroPreviouslyRaised=true;
+        assert(choose(i).action!=Action::Raise);
+        i.card0=25; i.card1=38; // Ah As never folds after re-raise
+        assert(choose(i).action!=Action::Fold);
+        i.card0=24; i.card1=37; // Kh Ks conservatively calls
+        assert(choose(i).action==Action::Call);
+        i.card0=7; i.card1=20; // 9d 9h, 3-bet chart but not a 4-bet hand
+        assert(choose(i).action==Action::Fold);
+    }
+    // Short-stack setting widens playable combinations and never shrinks
+    // them when players bust or blind pressure increases.
+    {
+        auto i=baseline(50,21,0);
+        i.alive=3; i.roleIndex=0; i.bigBlind=100;
+        i.stack=500; i.heroCommitted=0; i.price=100;
+        i.highestSet=100; i.pot=150;
+        i.shortStackAdjustment=-10;
+        const auto narrow=choose(i);
+        i.shortStackAdjustment=10;
+        const auto wide=choose(i);
+        if (narrow.action!=Action::Fold)
+            assert(wide.action!=Action::Fold);
     }
     // Fail closed on invalid card code and illegal raise bounds.
     {

@@ -129,6 +129,8 @@ class GameHandler : public QObject
 	Q_PROPERTY(QVariantMap kibitzerProgress READ kibitzerProgress NOTIFY kibitzerProgressChanged)
 	Q_PROPERTY(QVariantList kibitzerOpponentRanges READ kibitzerOpponentRanges NOTIFY kibitzerRangesChanged)
 	Q_PROPERTY(int kibitzerMonteCarloRuns READ kibitzerMonteCarloRuns NOTIFY kibitzerMonteCarloRunsChanged)
+	Q_PROPERTY(int kibitzerThreeBetPercent READ kibitzerThreeBetPercent NOTIFY kibitzerPreflopConfigChanged)
+	Q_PROPERTY(int kibitzerShortStackAdjustment READ kibitzerShortStackAdjustment NOTIFY kibitzerPreflopConfigChanged)
 	Q_PROPERTY(QVariantList players READ players NOTIFY playersChanged)
 	Q_PROPERTY(int pot READ pot NOTIFY potChanged)
 	Q_PROPERTY(int gameId READ gameId NOTIFY gameIdChanged)
@@ -244,6 +246,9 @@ public:
 	Q_INVOKABLE QVariantMap kibitzerAutoplayStep();
 	int kibitzerMonteCarloRuns() const { return m_kibitzerMonteCarloRuns; }
 	Q_INVOKABLE bool kibitzerSetMonteCarloRuns(int requested);
+	int kibitzerThreeBetPercent() const { return m_kibitzerThreeBetPercent; }
+	int kibitzerShortStackAdjustment() const { return m_kibitzerShortStackAdjustment; }
+	Q_INVOKABLE bool kibitzerSetPreflopConfig(int threeBetPercent, int shortStackAdjustment);
 	Q_INVOKABLE QVariantList kibitzerOpponentRanges() const;
 	Q_INVOKABLE QVariantMap kibitzerSetOpponentRange(int seatId, const QString &notation);
 	Q_INVOKABLE QVariantMap kibitzerSetBetResponse(int seatId,
@@ -517,6 +522,7 @@ signals:
 	void kibitzerReviewChanged();
 	void kibitzerRangesChanged();
 	void kibitzerMonteCarloRunsChanged();
+	void kibitzerPreflopConfigChanged();
 	void playersChanged();
 	void potChanged();
 	void gameIdChanged();
@@ -682,6 +688,8 @@ private:
 	// User-specified hypotheses by local seat ID; never inferred from hidden bot cards.
 	// Reset for each newly started local table, retained across its hands.
 	int m_kibitzerMonteCarloRuns = 2500; // user preference; separate from training-history archive
+	int m_kibitzerThreeBetPercent = 6;   // ~6.03% of 1326 two-card combinations
+	int m_kibitzerShortStackAdjustment = 0; // -10, 0, +10 percentage points
 	QHash<int, QString> m_kibitzerManualRanges;
 	QHash<int, QString> m_kibitzerContinueHalfPot;
 	QHash<int, QString> m_kibitzerContinueFullPot;

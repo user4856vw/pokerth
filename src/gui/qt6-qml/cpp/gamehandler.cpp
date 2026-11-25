@@ -17,6 +17,7 @@
 #include "kibitzer_review_logic.h"
 #include "kibitzer_autoplay_logic.h"
 #include "kibitzer_preflop_policy.h"
+#include "kibitzer_preflop_position.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -192,6 +193,15 @@ GameHandler::GameHandler(QObject *parent)
 	m_kibitzerMonteCarloRuns = parsed
 		? KibitzerMonteCarlo::fromStored(storedRuns)
 		: KibitzerMonteCarlo::kDefaultRuns;
+	const int storedThreeBet=settings.value(
+		QStringLiteral("autoplayThreeBetPercent"),6).toInt();
+	m_kibitzerThreeBetPercent=(storedThreeBet>=5 && storedThreeBet<=7)
+		?storedThreeBet:6;
+	const int storedShortAdjustment=settings.value(
+		QStringLiteral("autoplayShortStackAdjustment"),0).toInt();
+	m_kibitzerShortStackAdjustment=
+		(storedShortAdjustment== -10 || storedShortAdjustment==0 ||
+		 storedShortAdjustment==10) ? storedShortAdjustment : 0;
 	loadKibitzerProgress();
 }
 
@@ -264,6 +274,27 @@ bool GameHandler::kibitzerSetMonteCarloRuns(int requested)
 
     m_kibitzerMonteCarloRuns = requested;
     emit kibitzerMonteCarloRunsChanged();
+    return true;
+}
+
+bool GameHandler::kibitzerSetPreflopConfig(int threeBetPercent,
+                                              int shortStackAdjustment)
+{
+    if (threeBetPercent<5 || threeBetPercent>7 ||
+        (shortStackAdjustment!= -10 && shortStackAdjustment!=0 &&
+         shortStackAdjustment!=10))
+        return false;
+    QSettings settings(QStringLiteral("PokerTH"),QStringLiteral("KibitzerTrainer"));
+    settings.setValue(QStringLiteral("autoplayThreeBetPercent"),threeBetPercent);
+    settings.setValue(QStringLiteral("autoplayShortStackAdjustment"),shortStackAdjustment);
+    settings.sync();
+    if (settings.status()!=QSettings::NoError) return false;
+    if (m_kibitzerThreeBetPercent!=threeBetPercent ||
+        m_kibitzerShortStackAdjustment!=shortStackAdjustment) {
+        m_kibitzerThreeBetPercent=threeBetPercent;
+        m_kibitzerShortStackAdjustment=shortStackAdjustment;
+        emit kibitzerPreflopConfigChanged();
+    }
     return true;
 }
 
@@ -1515,14 +1546,27 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             p.card1=own.value("card1",-1).toInt();
         }
         p.button=hero->getMyButton();
-        p.alive=static_cast<int>(seats->size());
+        std::vector<KibitzerPreflopPosition::Seat> ring;
+        ring.reserve(seats->size());
+        for (const auto &player : *seats)
+            ring.push_back({player->getMyID(),player->getMyButton(),
+                            player->getMyActiveStatus()});
+        const auto derived=KibitzerPreflopPosition::derive(ring,hero->getMyID());
+        p.alive=derived.alive;
+        p.roleIndex=derived.heroRole;
+        p.valueThreeBetPercent=m_kibitzerThreeBetPercent;
+        p.shortStackAdjustment=m_kibitzerShortStackAdjustment;
         p.bigBlind=hand->getSmallBlind()*2;
         p.highestSet=bero->getHighestSet();
         p.price=input.price;
         p.stack=hero->getMyCash();
+        p.heroCommitted=hero->getMySet();
+        auto boardState=hand->getBoard();
+        p.pot=boardState ? std::max(0,boardState->getPot()+boardState->getSets()) : 0;
         p.minRaise=input.minRaise;
         p.maxRaise=input.maxRaise;
         p.hasRaise=p.highestSet>p.bigBlind || p.price>p.bigBlind;
+        p.heroPreviouslyRaised=input.alreadyBetThisStreet;
         auto active=hand->getActivePlayerList();
         if (active)
             for (const auto &player : *active) {
@@ -1532,12 +1576,19 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             }
         preflopAudit=QVariantMap{
             {QStringLiteral("positionButton"),p.button},
+            {QStringLiteral("dealerSeat"),derived.dealerId},
+            {QStringLiteral("relativeSeat"),p.roleIndex},
             {QStringLiteral("playersAlive"),p.alive},
+            {QStringLiteral("valueThreeBetPercent"),p.valueThreeBetPercent},
+            {QStringLiteral("shortStackAdjustment"),p.shortStackAdjustment},
+            {QStringLiteral("heroCommitted"),p.heroCommitted},
+            {QStringLiteral("pot"),p.pot},
             {QStringLiteral("bigBlind"),p.bigBlind},
             {QStringLiteral("highestSet"),p.highestSet},
             {QStringLiteral("limpers"),p.limpers},
             {QStringLiteral("opponentAllIns"),p.opponentAllIns},
-            {QStringLiteral("facingRaise"),p.hasRaise}
+            {QStringLiteral("facingRaise"),p.hasRaise},
+            {QStringLiteral("heroPreviouslyRaised"),p.heroPreviouslyRaised}
         };
         return KibitzerPreflop::choose(p);
     }();
@@ -1551,7 +1602,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     }
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v3")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v4")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},
