@@ -30,6 +30,7 @@ struct Input {
     int limpers = 0;
     int opponentAllIns = 0;
     bool hasRaise = false;
+    bool heroPreviouslyRaised = false; // distinguishes an initial 3-bet from a 4-bet
 };
 
 enum class Position { Early, Middle, Late, Button, SmallBlind, BigBlind };
@@ -204,6 +205,22 @@ inline Decision choose(const Input &in) {
     }
 
     if (in.hasRaise) {
+        // Do not reuse the 5–7% value 3-bet chart for 4/5-bet wars.
+        // A previous hero raise followed by a new opponent raise represents
+        // a much stronger, action-conditioned villain range. AA was handled
+        // before this branch. No random-range equity can justify a re-raise.
+        if (in.heroPreviouslyRaised) {
+            if (c.pair && c.hi>=13 && in.price<=in.stack/3)
+                return {Action::Call,in.price,true,
+                        "preflop-after-hero-raise-KK-call-no-4bet-model"};
+            if (((c.pair&&c.hi>=12) ||
+                 (c.hi==14&&c.lo==13)) &&
+                in.price<=in.stack/5)
+                return {Action::Call,in.price,true,
+                        "preflop-after-hero-raise-premium-call-no-4bet-model"};
+            return {Action::Fold,0,true,
+                    "preflop-after-hero-raise-no-unmodeled-4bet"};
+        }
         // Unknown opponent ranges: continue only with credible value hands.
         // No automatic 3-bet based on equity versus uniformly random hands.
         const bool chart=KibitzerPreflopRanges::valueThreeBet(
