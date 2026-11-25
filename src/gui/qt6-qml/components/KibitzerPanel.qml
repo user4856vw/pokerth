@@ -246,9 +246,10 @@ Rectangle {
     readonly property var progress: GameTable ? GameTable.kibitzerProgress : ({"totalHands": 0})
     readonly property bool hasReview: report && report.entries && report.entries.length > 0
     readonly property bool reviewMode: forceReview || !myTurnNow
-    implicitHeight: (expanded && reviewMode) ? Math.min(310, 123 + reviewLines.implicitHeight)
-                    : (expanded ? 238 + (hasAggressionSignal ? 25 : 0)
-                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 153 : 128)
+    // Reserve height for AUTO PREFLOP preferences in both layout modes.
+    implicitHeight: (expanded && reviewMode) ? Math.min(339, 152 + reviewLines.implicitHeight)
+                    : (expanded ? 267 + (hasAggressionSignal ? 25 : 0)
+                      : (myTurnNow && advice.rangeStatus !== "baseline" ? 182 : 157)
                         + (hasAggressionSignal ? 25 : 0) + (!reviewMode ? 20 : 0))
     visible: openRequested && localEligible
     function fmt(n) { return Number(n || 0).toFixed(1) + "%" }
