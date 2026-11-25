@@ -24,3 +24,5 @@ jobs:
               "tests/kibitzer/test_${t}.cpp" -o "/tmp/kibitzer-${t}"
             "/tmp/kibitzer-${t}"
           done
+      - name: Regression test offline evidence report
+        run: python3 -m unittest discover -s tests/kibitzer -p test_evidence_report.py -v
