@@ -43,9 +43,13 @@ int main() {
     }
     // Open raise changes the situation: do not use equity vs 9 random hands.
     {
-        auto i=baseline(0,39,1);
+        auto i=baseline(5,39,1); // 7d 2c: never defend an expensive raise
         i.hasRaise=true; i.highestSet=100; i.price=100; i.minRaise=180;
         assert(choose(i).action==Action::Fold);
+        // Small pocket pairs may flat-call deep, but must not 3-bet as a
+        // value hand merely because their random showdown equity is high.
+        i.card0=0; i.card1=39;
+        assert(choose(i).action!=Action::Raise);
         i.card0=12; i.card1=37;
         auto d=choose(i);
         assert(d.action==Action::Raise && d.amount>=180);
