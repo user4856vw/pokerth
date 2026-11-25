@@ -1,4 +1,5 @@
 #include "kibitzer_preflop_position.h"
+#include "kibitzer_preflop_policy.h"
 #include <cassert>
 #include <iostream>
 #include <vector>
@@ -30,6 +31,13 @@ int main() {
     for(auto &s:seats) s.button=s.id==0?1:0;
     r=derive(seats);
     assert(r.alive==2 && r.heroRole==0 && r.dealerId==0);
+
+    // The marker "0" is not equivalent to UTG. The true role must
+    // determine whether an unmarked hero is early or late.
+    assert(KibitzerPreflop::position(0,10,3)==KibitzerPreflop::Position::Early);
+    assert(KibitzerPreflop::position(0,5,4)==KibitzerPreflop::Position::Late);
+    assert(KibitzerPreflop::position(0,3,0)==KibitzerPreflop::Position::Button);
+    assert(KibitzerPreflop::position(0,2,1)==KibitzerPreflop::Position::BigBlind);
 
     // Unknown dealer must not silently invent a position.
     for(auto &s:seats) s.button=0;
