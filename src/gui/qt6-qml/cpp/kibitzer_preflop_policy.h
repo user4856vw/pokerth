@@ -220,8 +220,15 @@ inline Decision choose(const Input &in) {
                 return {Action::Raise,size,true,
                         "preflop-configured-value-three-bet"};
         }
-        const bool defend = chart || strong(c) ||
-            (c.pair && c.hi>=9 && in.price<=in.stack/10);
+        // Calling range is intentionally distinct and wider than the
+        // value-only 3-bet range. Changing 3-bet % must not turn AQo/KJs
+        // into an automatic FOLD versus an affordable opening raise.
+        const int flatWidth = (p==Position::Button || p==Position::BigBlind)
+            ? 19 : p==Position::Late ? 16 : 13;
+        const bool defend = chart ||
+            KibitzerPreflopRanges::topPercent(
+                KibitzerPreflopRanges::decode(in.card0,in.card1),
+                flatWidth+(in.price<=2*in.bigBlind?4:0));
         if (defend && in.price<=in.stack/5)
             return {Action::Call,in.price,true,"preflop-raise-defend-provisional"};
         return {Action::Fold,0,true,"preflop-raise-fold-outside-range"};
