@@ -1566,6 +1566,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         p.minRaise=input.minRaise;
         p.maxRaise=input.maxRaise;
         p.hasRaise=p.highestSet>p.bigBlind || p.price>p.bigBlind;
+        p.heroPreviouslyRaised=input.alreadyBetThisStreet;
         auto active=hand->getActivePlayerList();
         if (active)
             for (const auto &player : *active) {
@@ -1586,7 +1587,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             {QStringLiteral("highestSet"),p.highestSet},
             {QStringLiteral("limpers"),p.limpers},
             {QStringLiteral("opponentAllIns"),p.opponentAllIns},
-            {QStringLiteral("facingRaise"),p.hasRaise}
+            {QStringLiteral("facingRaise"),p.hasRaise},
+            {QStringLiteral("heroPreviouslyRaised"),p.heroPreviouslyRaised}
         };
         return KibitzerPreflop::choose(p);
     }();
