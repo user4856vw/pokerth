@@ -56,11 +56,14 @@ Rectangle {
     property bool expanded: false
     property bool openRequested: false
     readonly property bool editingRestore: restoreArea.activeFocus
-    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible || mcPopup.visible || historyPopup.visible
+    readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible || mcPopup.visible || historyPopup.visible || preflopPopup.visible
     property var rangePlayers: []
     property string rangeFeedback: ""
     property string betFeedback: ""
     property string mcFeedback: ""
+    property string preflopFeedback: ""
+    property int threeBetSelection: 6
+    property int shortSelection: 0
     readonly property bool customRangeActive: advice.rangeStatus === "ready"
     readonly property bool hasAggressionSignal: advice.status === "ready" && advice.aggression
                   && advice.aggression.status !== "none"
@@ -635,6 +638,28 @@ Rectangle {
                 MouseArea { anchors.fill: parent; onClicked: historyPopup.open() }
             }
         }
+        Rectangle {
+            width: parent.width
+            height: 25
+            radius: 5
+            color: "#293d54"
+            border.color: "#91a7c9"
+            Text {
+                anchors.centerIn: parent
+                width: parent.width-8
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                text: "AUTO PREFLOP · 3BET "
+                      + (GameTable ? GameTable.kibitzerThreeBetPercent : 6)
+                      + "% · SHORT "
+                      + (GameTable && GameTable.kibitzerShortStackAdjustment>0
+                         ? "wide" : GameTable && GameTable.kibitzerShortStackAdjustment<0
+                           ? "tight" : "balanced") + " ⓘ"
+                color: "#b9f0d1"
+                font.pixelSize: 11; font.bold: true
+            }
+            MouseArea { anchors.fill: parent; onClicked: preflopPopup.open() }
+        }
         Text {
             visible: !kb.reviewMode
             width: parent.width
@@ -898,6 +923,110 @@ Rectangle {
                             + "The historical action is observed, not recommended."
                     }
                 }
+            }
+        }
+    }
+
+    Popup {
+        id: preflopPopup
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(8, (parent.width-width)/2)
+        y: Math.max(8, (parent.height-height)/2)
+        width: Math.min(475,parent.width-16)
+        padding: 14
+        onOpened: {
+            kb.preflopFeedback=""
+            kb.threeBetSelection=GameTable ? GameTable.kibitzerThreeBetPercent : 6
+            kb.shortSelection=GameTable ? GameTable.kibitzerShortStackAdjustment : 0
+        }
+        background: Rectangle {
+            radius: 13; color: "#1c2636"; border.color: "#94a9ca"
+        }
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+            Text {
+                Layout.fillWidth: true
+                color: "#f0d891"; font.pixelSize: 16; font.bold: true
+                text: "AUTO TEST · PREFLOP RANGES"
+            }
+            Text {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                color: "#d6e1f3"; font.pixelSize: 12
+                text: "Value-only 3-betting (no bluff 3-bets). Hand classes count "
+                      + "their physical combinations among 1,326 possible deals."
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Repeater {
+                    model: [5,6,7]
+                    delegate: TrainerButton {
+                        required property int modelData
+                        Layout.fillWidth: true
+                        text: (kb.threeBetSelection===modelData ? "✓ " : "")
+                              + modelData + "% 3BET"
+                        onClicked: kb.threeBetSelection=modelData
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                color: "#d6e1f3"; font.pixelSize: 12
+                text: "Late tournament: as the stack falls through 10, 5, 2 "
+                      + "and 1 big blind, the push/fold chart widens. "
+                      + "Choose a +/-10 percentage-point adjustment."
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Repeater {
+                    model: [
+                        {"name":"Tight","change":-10},
+                        {"name":"Balanced","change":0},
+                        {"name":"Wide","change":10}
+                    ]
+                    delegate: TrainerButton {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        text: (kb.shortSelection===modelData.change ? "✓ " : "")
+                              + modelData.name
+                        onClicked: kb.shortSelection=modelData.change
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                color: "#aebfd7"; font.pixelSize: 11
+                text: "Defaults: 6% value 3-bet, balanced short stacks. "
+                      + "These are transparent reference heuristics, NOT GTO/ICM. "
+                      + "Change settings between overnight trials, not mid-run."
+            }
+            Text {
+                visible: kb.preflopFeedback!==""
+                Layout.fillWidth: true
+                color: "#ffb3b3"; font.pixelSize: 11; wrapMode: Text.WordWrap
+                text: kb.preflopFeedback
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                TrainerButton {
+                    Layout.fillWidth: true
+                    text: "Save ranges"
+                    onClicked: {
+                        if (GameTable && GameTable.kibitzerSetPreflopConfig(
+                                kb.threeBetSelection,kb.shortSelection)) {
+                            kb.preflopFeedback=""
+                            preflopPopup.close()
+                        } else {
+                            kb.preflopFeedback="Could not save settings."
+                        }
+                    }
+                }
+                TrainerButton { text: "Cancel"; onClicked: preflopPopup.close() }
             }
         }
     }
