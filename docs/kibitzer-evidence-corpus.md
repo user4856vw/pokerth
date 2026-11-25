@@ -87,6 +87,23 @@ g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
 /tmp/evidence_open_ranges
 ```
 
+After a v5-shadow run, audit all decisions in the exported history (it
+also handles the old 8 MiB-era v1/v2 JSON without inventing missing evidence):
+
+```sh
+python3 tools/kibitzer/evidence_report.py "pokerth-kibitzer-history.json" \\
+    --session 14
+python3 tools/kibitzer/evidence_report.py "pokerth-kibitzer-history.json" \\
+    --session 14 --json > v5-evidence-report.json
+```
+
+The report gives the fraction of decisions for which a comparison was legal,
+the **specific reason** all other comparisons were withheld, a context
+breakdown by live-player count / position / reference BB, and the concrete
+near-pure disagreements with hand ID and action reason. The reference average
+raise frequency is a comparator, *not* a claim of empirical optimality.
+Counts are correlated across hands and opponents, not independent trials.
+
 The isolated C++ test does not establish that Android packing, live
 QML interaction or end-to-end journal persistence works. Keep exporting
 JSON after each overnight run, and retain the exact commit SHA and
