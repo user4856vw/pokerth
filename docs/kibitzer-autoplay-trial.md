@@ -100,7 +100,10 @@ adds the following independent parameters in **K → AUTO PREFLOP**:
   be split without introducing arbitrary suit-dependent decisions. No bluff
   or semi-bluff 3-bets are added to this chart. A separate wider range
   governs **flat calls** against affordable raises, so tightening value
-  three-bets does not automatically fold AQo.
+  three-bets does not automatically fold AQo. The configured chart is used
+  for the **first** re-raise only: after hero has already raised and receives
+  another raise, the controller uses a much tighter separate continue/call
+  rule, not the same 6% range for a speculative 4-bet or 5-bet.
 * **Short-stack risk control:** tight (-10), balanced (default) or wide
   (+10 percentage points). Before contextual adjustments, the balanced
   **ranked** shove/call ranges target the top ~25% at 10BB, ~40% at 5BB,
