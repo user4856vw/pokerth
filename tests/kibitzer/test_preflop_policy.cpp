@@ -168,6 +168,22 @@ int main() {
         i.card0=50; i.card1=8; // Kc Td (not in value 3-bet chart)
         assert(choose(i).action!=Action::Raise);
     }
+    // A three-bet chart does NOT authorize a fourth/fifth bet.
+    // Following our own preflop raise, villain's re-raise is a new signal.
+    {
+        auto i=baseline(38,10,1); // As Qd, the default 6% value 3-bet
+        i.alive=4; i.roleIndex=0; i.hasRaise=true;
+        i.highestSet=200; i.price=200; i.minRaise=380;
+        assert(choose(i).action==Action::Raise);
+        i.heroPreviouslyRaised=true;
+        assert(choose(i).action!=Action::Raise);
+        i.card0=25; i.card1=38; // Ah As never folds after re-raise
+        assert(choose(i).action!=Action::Fold);
+        i.card0=24; i.card1=37; // Kh Ks conservatively calls
+        assert(choose(i).action==Action::Call);
+        i.card0=7; i.card1=20; // 9d 9h, 3-bet chart but not a 4-bet hand
+        assert(choose(i).action==Action::Fold);
+    }
     // Short-stack setting widens playable combinations and never shrinks
     // them when players bust or blind pressure increases.
     {
