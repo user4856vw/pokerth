@@ -227,4 +227,72 @@ inline Estimate estimate(const State& s,const std::vector<Evidence>& history,int
     }
     return out;
 }
+// Collision-free joint proposal over all physical cards. Importance weights
+// condition on the recorded history for EACH still-eligible opponent.
+// Folded hands and strategic dependencies are not modeled. Reject inadequate
+// effective sample size rather than silently substitute random equity.
+inline Estimate estimateMultiway(const State& s,
+        const std::vector<std::vector<Evidence>>& histories,int requested,std::uint32_t seed){
+    Estimate out;
+    const int opponents=static_cast<int>(histories.size());
+    if(!validState(s)||opponents<2||opponents>9||requested<1000)return out;
+    auto hero=cards(s,s.h0,s.h1);std::vector<int> deck;
+    for(int x=0;x<52;++x)if(std::find(hero.begin(),hero.begin()+s.n+2,x)==hero.begin()+s.n+2)deck.push_back(x);
+    const int needed=2*opponents+5-s.n;
+    if(needed>static_cast<int>(deck.size()))return out;
+    // Precompute combination weights; known-card removal happens in the
+    // joint deal, not by independently drawing potentially colliding hands.
+    std::vector<std::array<std::array<double,3>,1326>> weights(opponents);
+    auto index=[](int a,int b){if(a>b)std::swap(a,b);return a*(103-a)/2+b-a-1;};
+    for(int j=0;j<opponents;++j)
+        for(int a:deck)for(int b:deck)if(a<b){
+            auto& w=weights[j][index(a,b)];w={{1,1,1}};
+            for(int q=0;q<3;++q)for(const auto& e:histories[j])w[q]*=likelihood(e,a,b,q);
+        }
+    std::array<double,3> total{},squares{},wins{},drawWins{};
+    std::array<std::array<double,52>,3> cardMass{},cardWin{};
+    const int heroCurrent=s.n>=3?category(value(hero,s.n+2)):0;
+    std::mt19937 rng(seed);
+    for(int i=0;i<requested;++i){
+        for(int k=0;k<needed;++k){
+            std::uniform_int_distribution<int> pick(k,static_cast<int>(deck.size())-1);
+            std::swap(deck[k],deck[pick(rng)]);
+        }
+        auto hc=hero;
+        for(int k=s.n;k<5;++k)hc[k+2]=deck[2*opponents+k-s.n];
+        const int hv=value(hc,7);
+        bool beaten=false;int ties=1;std::array<double,3> w{{1,1,1}};
+        for(int j=0;j<opponents;++j){
+            auto vc=hc;vc[0]=deck[2*j];vc[1]=deck[2*j+1];
+            const int vv=value(vc,7);
+            beaten|=vv>hv;if(vv==hv)++ties;
+            const auto& vw=weights[j][index(vc[0],vc[1])];
+            for(int q=0;q<3;++q)w[q]*=vw[q];
+        }
+        const double share=beaten?0:1.0/ties;
+        const bool draw=s.n==4&&heroCurrent<4&&(category(hv)==4||category(hv)==5||category(hv)==8);
+        const int x=s.n==4?hc[6]:-1;
+        for(int q=0;q<3;++q){
+            total[q]+=w[q];squares[q]+=w[q]*w[q];wins[q]+=w[q]*share;
+            if(draw){drawWins[q]+=w[q]*share;out.nominalOut[x]=true;}
+            if(s.n==4){cardMass[q][x]+=w[q];cardWin[q][x]+=w[q]*share;}
+        }
+    }
+    out.samples=requested;out.ready=true;
+    for(int q=0;q<3;++q){
+        if(total[q]<=0||squares[q]<=0){out.ready=false;return out;}
+        out.equity[q]=wins[q]/total[q];
+        out.effectiveSamples[q]=total[q]*total[q]/squares[q];
+        if(out.effectiveSamples[q]<std::max(200.0,.05*requested))out.ready=false;
+        if(s.n==4){
+            // Scale to number of river candidates after all sampled hole cards.
+            out.winningDrawOuts[q]=(46-2*opponents)*drawWins[q]/total[q];
+            for(int x:deck)if(cardMass[q][x]>0){
+                out.outWinProbability[q][x]=cardWin[q][x]/cardMass[q][x];
+                out.outCardProbability[q][x]=cardMass[q][x]/total[q];
+            }
+        }
+    }
+    return out;
+}
 } // namespace KibitzerBoard
