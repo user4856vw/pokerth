@@ -16,6 +16,7 @@
 #include <cardsvalue.h>
 #include "kibitzer_review_logic.h"
 #include "kibitzer_autoplay_logic.h"
+#include "kibitzer_strategic_policy.h"
 #include "kibitzer_preflop_policy.h"
 #include "kibitzer_preflop_position.h"
 #include "kibitzer_evidence_open_ranges.h"
@@ -365,6 +366,8 @@ void GameHandler::setGame(boost::shared_ptr<Game> game)
 	m_kibitzerEvents.clear();
 	m_kibitzerHandId = -1;
 	m_kibitzerHandSettlement.clear();
+	m_kibitzerPublicActions.clear();
+	m_kibitzerPublicHandId = -1;
 	m_kibitzerManualRanges.clear(); // seat numbers are specific to this game
 	m_kibitzerContinueHalfPot.clear();
 	m_kibitzerContinueFullPot.clear();
@@ -1529,8 +1532,107 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     // random multiway equity threshold is NOT valid for an unopened pot.
     const bool isPreflop = m_phaseText == QLatin1String("Preflop");
     QVariantMap preflopAudit;
+    QVariantMap strategicAudit;
+    KibitzerBoard::State publicState;
+    if (!m_players.isEmpty()) {
+        const auto own=m_players.at(0).toMap();
+        publicState.h0=own.value("card0",-1).toInt();
+        publicState.h1=own.value("card1",-1).toInt();
+    }
+    publicState.n=m_boardCardCount;
+    if (publicState.n<0 || publicState.n>5 || m_boardCards.size()<publicState.n)
+        publicState.n=-1;
+    if (publicState.n>=0)
+        for(int i=0;i<publicState.n;++i) publicState.board[i]=m_boardCards.at(i).toInt();
+    const auto texture=KibitzerBoard::analyze(publicState);
+    int singleSeat=-1, eligible=0, living=0;
+    bool opponentAllIn=false;
+    if(activeHand) {
+        const auto active=activeHand->getActivePlayerList();
+        const auto seats=activeHand->getSeatsList();
+        if(seats) for(const auto& p:*seats) if(p->getMyActiveStatus()) ++living;
+        if(active) for(const auto& p:*active) {
+            if(p->getMyID()==0 || p->getMyAction()==PLAYER_ACTION_FOLD) continue;
+            singleSeat=p->getMyID(); ++eligible;
+            opponentAllIn|=p->getMyAction()==PLAYER_ACTION_ALLIN;
+        }
+    }
+    // A two-player tournament has no third-player side pot. Otherwise a
+    // single current opponent is safe only when there is no all-in condition.
+    const bool potEligible=eligible==1 && input.price<input.stack &&
+        (living==2 || (!opponentAllIn && activeHand && !activeHand->getAllInCondition()));
+    QVariantList trace;
+    if(activeHand && m_kibitzerPublicHandId==activeHand->getMyID())
+        trace=m_kibitzerPublicActions;
+    std::vector<KibitzerBoard::Evidence> evidence;
+    bool currentStreetObserved=false;
+    // Only use valid, visible, prefix-consistent board snapshots, from the
+    // same opponent. Never infer the identity of an earlier multiway bettor.
+    if(eligible==1 && KibitzerBoard::validState(publicState)){
+        for(const QVariant& v:trace){
+            const auto e=v.toMap();
+            if(e.value("seat").toInt()!=singleSeat) continue;
+            const int a=e.value("action").toInt();
+            if(a!=PLAYER_ACTION_BET && a!=PLAYER_ACTION_RAISE) continue;
+            const auto cards=e.value("boardCodes").toList();
+            KibitzerBoard::State previous=publicState;
+            previous.n=cards.size();
+            if(previous.n>publicState.n) continue;
+            bool prefix=true;
+            for(int i=0;i<previous.n;++i){
+                previous.board[i]=cards.at(i).toInt();
+                prefix&=previous.board[i]==publicState.board[i];
+            }
+            if(!prefix||!KibitzerBoard::validState(previous))continue;
+            evidence.push_back({previous,e.value("betFraction").toDouble()});
+            currentStreetObserved|=previous.n==publicState.n;
+        }
+        // Refresh callbacks can be incomplete. A priced heads-up decision
+        // itself proves outstanding pressure, except an ordinary blind.
+        bool pricedAggression=publicState.n>=3;
+        if(isPreflop&&activeHand&&activeHand->getCurrentBeRo())
+            pricedAggression=activeHand->getCurrentBeRo()->getHighestSet()>2*activeHand->getSmallBlind();
+        if(input.price>0 && pricedAggression && !currentStreetObserved)
+            evidence.push_back({publicState,double(input.price)/std::max(1,input.pot-input.price)});
+    }
+    KibitzerBoard::Estimate inferred;
+    const bool manualRange=rangeStatus==QLatin1String("ready");
+    const auto strategicSeed=static_cast<std::uint32_t>(advice.value("seed").toULongLong())|1U;
+    if(potEligible && input.price>0 && !manualRange && !evidence.empty())
+        inferred=KibitzerBoard::estimate(publicState,evidence,m_kibitzerMonteCarloRuns,strategicSeed);
+    strategicAudit["model"]=QStringLiteral("public-action-weighted-hu-v1-provisional");
+    strategicAudit["publicActions"]=trace;
+    strategicAudit["eligibleOpponents"]=eligible;
+    strategicAudit["potEligible"]=potEligible;
+    strategicAudit["aggressionObservations"]=static_cast<int>(evidence.size());
+    strategicAudit["boardPaired"]=texture.paired;
+    strategicAudit["privateMade"]=texture.privateMade;
+    strategicAudit["handCategory"]=texture.category;
+    strategicAudit["maxBoardSuit"]=texture.maxSuit;
+    strategicAudit["nominalStraightFlushOuts"]=texture.straightOrFlushOuts;
+    strategicAudit["conditionedReady"]=inferred.ready;
+    strategicAudit["conditionedSamples"]=inferred.samples;
+    strategicAudit["seed"]=static_cast<quint64>(strategicSeed);
+    QVariantList evidenceAudit;
+    for(const auto& e:evidence){
+        QVariantList codes;
+        for(int i=0;i<e.state.n;++i)codes.append(e.state.board[i]);
+        evidenceAudit.append(QVariantMap{{QStringLiteral("boardCodes"),codes},
+            {QStringLiteral("betFraction"),e.betFraction}});
+    }
+    strategicAudit["rangeEvidence"]=evidenceAudit;
+    if(inferred.ready){
+        strategicAudit["conditionedEquities"]=QVariantList{inferred.equity[0],inferred.equity[1],inferred.equity[2]};
+        strategicAudit["effectiveSamples"]=QVariantList{inferred.effectiveSamples[0],inferred.effectiveSamples[1],inferred.effectiveSamples[2]};
+        strategicAudit["winningDrawOuts44"]=QVariantList{inferred.winningDrawOuts[0],inferred.winningDrawOuts[1],inferred.winningDrawOuts[2]};
+    }
+    auto legacy=KibitzerAutoplay::choose(input);
     const auto d = [&]() -> KibitzerAutoplay::Decision {
-        if (!isPreflop) return KibitzerAutoplay::choose(input);
+        if (!isPreflop) {
+            if(manualRange) return legacy; // explicit user hypotheses take precedence
+            return KibitzerStrategic::choose(input,texture,inferred,
+                static_cast<int>(evidence.size()),potEligible,legacy);
+        }
         KibitzerPreflop::Input p;
         auto hand=m_game->getCurrentHand();
         if (!hand) return KibitzerPreflop::choose(p);
@@ -1607,6 +1709,11 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             {QStringLiteral("openingFrequency"),
                 external.applicable?QVariant(double(external.frequencyThousandths)/1000.0):QVariant()}
         };
+        legacy=KibitzerPreflop::choose(p);
+        p.strategicV6=true;
+        p.opponents=eligible;
+        p.randomEquity=input.adviceReady?advice.value("equity").toDouble():-1;
+        p.conditionedLow=inferred.ready?inferred.equity[0]:-1;
         return KibitzerPreflop::choose(p);
     }();
 
@@ -1638,9 +1745,12 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     case KibitzerAutoplay::Action::Fold:  move = QStringLiteral("FOLD"); break;
     case KibitzerAutoplay::Action::Raise: move = QStringLiteral("BET/RAISE"); break;
     }
+    strategicAudit["legacyReason"]=QString::fromLatin1(legacy.reason);
+    strategicAudit["legacyAction"]=static_cast<int>(legacy.action);
+    strategicAudit["actionChanged"]=legacy.action!=d.action;
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v5-shadow")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v6")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},
@@ -1651,7 +1761,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         {QStringLiteral("callPrice"), input.price},
         {QStringLiteral("remainingStack"), input.stack},
         {QStringLiteral("riverCounterraise"), input.riverFacingCounterraise},
-        {QStringLiteral("preflopReference"), preflopAudit}
+        {QStringLiteral("preflopReference"), preflopAudit},
+        {QStringLiteral("strategic"), strategicAudit}
     };
 
     bool executed = true;
@@ -2868,6 +2979,52 @@ void GameHandler::onRefreshAction(int playerId, int playerAction)
 	qDebug() << "[ACTDBG] >> onRefreshAction id=" << playerId << "act=" << playerAction << "myTurn=" << m_myTurn;
 	refreshPlayerData();
 	computeCallAndRaiseAmounts();
+
+    // Public callback observation only. A queued callback that no longer
+    // agrees with the visible engine action is discarded, not reconstructed.
+    if(isLocalGameRunning() && m_game && playerId>0 && playerAction>0 && playerAction<=6){
+        const auto hand=m_game->getCurrentHand();
+        if(hand){
+            if(m_kibitzerPublicHandId!=hand->getMyID()){
+                m_kibitzerPublicHandId=hand->getMyID();
+                m_kibitzerPublicActions.clear();
+            }
+            const auto seats=hand->getSeatsList();
+            const auto board=hand->getBoard();
+            if(seats && board && (m_boardCardCount==0||m_boardCardCount==3||m_boardCardCount==4||m_boardCardCount==5)
+                && m_boardCards.size()>=m_boardCardCount){
+                for(const auto& p:*seats){
+                    if(p->getMyID()!=playerId || p->getMyAction()!=playerAction)continue;
+                    QVariantList codes;
+                    for(int i=0;i<m_boardCardCount;++i)codes.append(m_boardCards.at(i));
+                    int priorSet=0;
+                    if(m_boardCardCount==0){
+                        if(p->getMyButton()==2)priorSet=hand->getSmallBlind();
+                        if(p->getMyButton()==3)priorSet=2*hand->getSmallBlind();
+                    }
+                    bool duplicate=false;
+                    for(auto it=m_kibitzerPublicActions.crbegin();it!=m_kibitzerPublicActions.crend();++it){
+                        const auto e=it->toMap();
+                        if(e.value("seat").toInt()!=playerId||e.value("boardCodes").toList()!=codes)continue;
+                        priorSet=e.value("committed").toInt();
+                        duplicate=priorSet==p->getMySet()&&e.value("action").toInt()==playerAction;
+                        break;
+                    }
+                    if(duplicate)break;
+                    const int delta=std::max(0,p->getMySet()-priorSet);
+                    const int pot=std::max(0,board->getPot()+board->getSets());
+                    m_kibitzerPublicActions.append(QVariantMap{
+                        {QStringLiteral("seat"),playerId},{QStringLiteral("action"),playerAction},
+                        {QStringLiteral("boardCodes"),codes},{QStringLiteral("committed"),p->getMySet()},
+                        {QStringLiteral("remainingStack"),p->getMyCash()},
+                        {QStringLiteral("potAfter"),pot},{QStringLiteral("increment"),delta},
+                        {QStringLiteral("betFraction"),double(delta)/std::max(1,pot-delta)}});
+                    if(m_kibitzerPublicActions.size()>128)m_kibitzerPublicActions.removeFirst();
+                    break;
+                }
+            }
+        }
+    }
 
 	// It corresponds to gametableimpl::refreshAction: only play the action sound on a
 	// specific action (not on a global refresh).
