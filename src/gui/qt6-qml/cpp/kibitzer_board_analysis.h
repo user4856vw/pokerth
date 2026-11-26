@@ -52,7 +52,7 @@ inline Texture texture(const Board& b,int n) {
 // Does a private card improve the category, rather than simply supply
 // a kicker to a community pair? A stronger straight/flush on a made
 // five-card board also counts. Kicker-only hands can still win bluffs.
-inline bool privateMade(int a,int b,const Board& board,int n,unsigned v) {
+inline bool privateMade(int,int,const Board& board,int n,unsigned v) {
     const auto t=texture(board,n);
     const int c=category(v);
     return c>t.boardCategory ||
