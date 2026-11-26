@@ -132,7 +132,7 @@ inline double likelihood(const Evidence& e,int a,int b,int scenario){
     // Nonzero bluff floor; scenarios differ in severity. Large bets favor
     // strength more than small bets. No claim of empirical calibration.
     const double floor= scenario==0?.06:scenario==1?.18:.40;
-    const double intensity=std::clamp(e.betFraction,.15,1.0);
+    const double intensity=std::clamp(2*e.betFraction,.15,1.0);
     return 1-intensity*(1-(floor+(1-floor)*strength));
 }
 struct Estimate{
@@ -145,15 +145,21 @@ inline Estimate estimate(const State& s,const std::vector<Evidence>& history,int
     for(int x=0;x<52;++x)if(std::find(hero.begin(),hero.begin()+s.n+2,x)==hero.begin()+s.n+2)deck.push_back(x);
     std::array<double,3> sum{},sq{},wins{},drawWins{},drawMass{};
     std::mt19937 rng(seed);
-    auto deal=[&](int a,int b,int x,int y,int z,int u,int v){
+    const int heroCurrent=s.n>=3?category(value(hero,s.n+2)):0;
+    auto weights=[&](int a,int b){
+        std::array<double,3> w{{1,1,1}};
+        for(int q=0;q<3;++q)for(const auto& e:history)w[q]*=likelihood(e,a,b,q);
+        return w;
+    };
+    auto deal=[&](int a,int b,int x,int y,int z,int u,int v,const std::array<double,3>& weight){
         Cards hc=hero,vc=cards(s,a,b);
         const std::array<int,5> future{{x,y,z,u,v}};
         for(int k=s.n;k<5;++k)hc[k+2]=vc[k+2]=future[k-s.n];
         const int hv=value(hc,7),vv=value(vc,7);
         const double result=hv>vv?1:hv==vv?.5:0;
-        const bool draw=s.n==4&&(category(hv)==4||category(hv)==5||category(hv)==8)&&category(value(hero,6))<4;
+        const bool draw=s.n==4&&(category(hv)==4||category(hv)==5||category(hv)==8)&&heroCurrent<4;
         for(int q=0;q<3;++q){
-            double w=1;for(const auto& e:history)w*=likelihood(e,a,b,q);
+            const double w=weight[q];
             sum[q]+=w;sq[q]+=w*w;wins[q]+=w*result;
             if(draw)drawWins[q]+=w*result;
             drawMass[q]+=w;
@@ -162,8 +168,9 @@ inline Estimate estimate(const State& s,const std::vector<Evidence>& history,int
     };
     if(s.n>=4){
         for(int a:deck)for(int b:deck)if(a<b){
-            if(s.n==5)deal(a,b,-1,-1,-1,-1,-1);
-            else for(int x:deck)if(x!=a&&x!=b)deal(a,b,x,-1,-1,-1,-1);
+            const auto w=weights(a,b);
+            if(s.n==5)deal(a,b,-1,-1,-1,-1,-1,w);
+            else for(int x:deck)if(x!=a&&x!=b)deal(a,b,x,-1,-1,-1,-1,w);
         }
     }else{
         const int needed=7-s.n;
@@ -171,7 +178,7 @@ inline Estimate estimate(const State& s,const std::vector<Evidence>& history,int
             for(int k=0;k<needed;++k){std::uniform_int_distribution<int> pick(k,int(deck.size())-1);std::swap(deck[k],deck[pick(rng)]);}
             std::array<int,5> f{{-1,-1,-1,-1,-1}};
             for(int k=0;k<5-s.n;++k)f[k]=deck[k+2];
-            deal(deck[0],deck[1],f[0],f[1],f[2],f[3],f[4]);
+            deal(deck[0],deck[1],f[0],f[1],f[2],f[3],f[4],weights(deck[0],deck[1]));
         }
     }
     out.ready=true;
