@@ -264,7 +264,7 @@ inline Decision choose(const Input &in) {
                 return {Action::Fold,0,true,"v6-preflop-random-equity-deficit"};
             if (in.highestSet>5LL*in.bigBlind && !strong(c))
                 return {Action::Fold,0,true,"v6-preflop-oversized-raise-no-speculation"};
-            if (in.opponents==1 && in.conditionedLow>=0 && in.pot>0 &&
+            if (in.opponents>=1 && in.conditionedLow>=0 && in.pot>0 &&
                 in.conditionedLow+.02<odds)
                 return {Action::Fold,0,true,"v6-preflop-conditioned-equity-deficit"};
         }
