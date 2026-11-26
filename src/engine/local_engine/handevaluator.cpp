@@ -107,13 +107,19 @@ void HandEvaluator::init()
 
 unsigned HandEvaluator::value(const int* cards)
 {
+	return value(cards, 7);
+}
+
+unsigned HandEvaluator::value(const int* cards, int count)
+{
+	if (count < 5 || count > 7) return 0;
 	const StraightTable& straights = straightTable();
 
 	unsigned rankMask = 0;
 	unsigned suitMask[4] = { 0, 0, 0, 0 };
 	int rankCount[13] = { 0 };
 
-	for(int i = 0; i < 7; ++i) {
+	for(int i = 0; i < count; ++i) {
 		const int suit = cards[i] / 13;
 		const int rank = cards[i] % 13;
 		rankMask |= 1u << rank;
