@@ -1573,7 +1573,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             const auto e=v.toMap();
             if(e.value("seat").toInt()!=singleSeat) continue;
             const int a=e.value("action").toInt();
-            if(a!=PLAYER_ACTION_BET && a!=PLAYER_ACTION_RAISE) continue;
+            if((a!=PLAYER_ACTION_BET && a!=PLAYER_ACTION_RAISE) || e.value("increment").toInt()<=0) continue;
             const auto cards=e.value("boardCodes").toList();
             KibitzerBoard::State previous=publicState;
             previous.n=cards.size();
@@ -1586,6 +1586,32 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             if(!prefix||!KibitzerBoard::validState(previous))continue;
             evidence.push_back({previous,e.value("betFraction").toDouble()});
             currentStreetObserved|=previous.n==publicState.n;
+        }
+        // Reconstruct only missing street observations from our own earlier
+        // decisions, and only if the same single opponent was identified.
+        // No inference from the earlier multiway preflop price.
+        if(activeHand && m_kibitzerHandId==activeHand->getMyID()){
+            std::array<bool,6> seenStreet{};
+            for(const auto& e:evidence)seenStreet[e.state.n]=true;
+            for(const QVariant& v:m_kibitzerEvents){
+                const auto e=v.toMap();
+                const auto audit=e.value("autoplay").toMap().value("strategic").toMap();
+                if(audit.value("singleOpponentSeat",-1).toInt()!=singleSeat)continue;
+                const int price=e.value("price").toInt(), pot=e.value("pot").toInt();
+                if(price<=0||pot<=price)continue;
+                const auto codes=e.value("snapshot").toMap().value("boardCodes").toList();
+                KibitzerBoard::State previous=publicState;
+                previous.n=codes.size();
+                if(previous.n<3||previous.n>=publicState.n||seenStreet[previous.n])continue;
+                bool prefix=true;
+                for(int i=0;i<previous.n;++i){
+                    previous.board[i]=codes.at(i).toInt();
+                    prefix&=previous.board[i]==publicState.board[i];
+                }
+                if(!prefix||!KibitzerBoard::validState(previous))continue;
+                evidence.push_back({previous,double(price)/std::max(1,pot-price)});
+                seenStreet[previous.n]=true;
+            }
         }
         // Refresh callbacks can be incomplete. A priced heads-up decision
         // itself proves outstanding pressure, except an ordinary blind.
@@ -1603,9 +1629,14 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     strategicAudit["model"]=QStringLiteral("public-action-weighted-hu-v1-provisional");
     strategicAudit["publicActions"]=trace;
     strategicAudit["eligibleOpponents"]=eligible;
+    strategicAudit["singleOpponentSeat"]=eligible==1?singleSeat:-1;
     strategicAudit["potEligible"]=potEligible;
     strategicAudit["aggressionObservations"]=static_cast<int>(evidence.size());
     strategicAudit["boardPaired"]=texture.paired;
+    strategicAudit["pairedRanks"]=texture.pairedRanks;
+    strategicAudit["tripledRanks"]=texture.tripledRanks;
+    strategicAudit["boardStraight"]=texture.boardStraight;
+    strategicAudit["boardFlush"]=texture.boardFlush;
     strategicAudit["privateMade"]=texture.privateMade;
     strategicAudit["handCategory"]=texture.category;
     strategicAudit["maxBoardSuit"]=texture.maxSuit;
@@ -1625,6 +1656,15 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         strategicAudit["conditionedEquities"]=QVariantList{inferred.equity[0],inferred.equity[1],inferred.equity[2]};
         strategicAudit["effectiveSamples"]=QVariantList{inferred.effectiveSamples[0],inferred.effectiveSamples[1],inferred.effectiveSamples[2]};
         strategicAudit["winningDrawOuts44"]=QVariantList{inferred.winningDrawOuts[0],inferred.winningDrawOuts[1],inferred.winningDrawOuts[2]};
+        if(publicState.n==4){
+            QVariantList outs;
+            for(int x=0;x<52;++x)if(inferred.nominalOut[x])
+                outs.append(QVariantMap{
+                    {QStringLiteral("card"),x},
+                    {QStringLiteral("winningShareByScenario"),QVariantList{inferred.outWinProbability[0][x],inferred.outWinProbability[1][x],inferred.outWinProbability[2][x]}},
+                    {QStringLiteral("cardProbabilityByScenario"),QVariantList{inferred.outCardProbability[0][x],inferred.outCardProbability[1][x],inferred.outCardProbability[2][x]}}});
+            strategicAudit["drawOutDetails"]=outs;
+        }
     }
     auto legacy=KibitzerAutoplay::choose(input);
     const auto d = [&]() -> KibitzerAutoplay::Decision {
