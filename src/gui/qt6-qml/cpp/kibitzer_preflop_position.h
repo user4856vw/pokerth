@@ -24,6 +24,15 @@ inline Result derive(const std::vector<Seat> &seats,int heroId=0) {
         if (s.button==1) out.dealerId=s.id;
     }
     out.alive=static_cast<int>(ring.size());
+    // Heads-up engine may expose only SB and BB markers. Require both.
+    if (out.alive==2 && out.dealerId<0) {
+        int sb=-1,bb=-1;
+        for (const auto& seat:seats) if (seat.alive) {
+            if (seat.button==2) sb=seat.id;
+            if (seat.button==3) bb=seat.id;
+        }
+        if (sb>=0 && bb>=0 && sb!=bb) out.dealerId=sb;
+    }
     if (out.alive<2 || out.dealerId<0) return out;
     // Do not rely on underlying PlayerList ordering: this engine keeps
     // fixed seat IDs, while active player lists change as people bust.
