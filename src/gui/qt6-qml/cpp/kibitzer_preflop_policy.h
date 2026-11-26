@@ -29,6 +29,10 @@ struct Input {
     int maxRaise = 0;
     int limpers = 0;
     int opponentAllIns = 0;
+    // Optional v6 evidence. Legacy pure policy tests can omit it.
+    int opponents = 0;
+    double randomEquity = -1, conditionedLow = -1;
+    bool strategicV6 = false;
     bool hasRaise = false;
     bool heroPreviouslyRaised = false; // distinguishes an initial 3-bet from a 4-bet
 };
@@ -159,6 +163,14 @@ inline Decision choose(const Input &in) {
                 "preflop-aa-legal-raise-unavailable-call"};
     }
 
+    // Cheap heads-up defense needs positive value in the pessimistic range,
+    // and no multiway/side-pot ambiguity. Never manufacture equity from a chart.
+    if (in.strategicV6 && in.alive==2 && in.opponents==1 &&
+        in.opponentAllIns==0 && in.price>0 && in.pot>0 &&
+        10LL*in.price<=in.pot && 10LL*in.price<=in.stack &&
+        in.conditionedLow>=double(in.price)/(double(in.pot)+in.price)+.03)
+        return {Action::Call,in.price,true,"v6-heads-up-cheap-conditioned-defense"};
+
     // Short-stack urgency is considered BEFORE the ordinary raise/limp/open
     // chart. Under 10BB, folding until blind-out is usually a larger error
     // than taking a modestly imperfect shove/call. Opponent ranges and ICM
@@ -246,6 +258,16 @@ inline Decision choose(const Input &in) {
             KibitzerPreflopRanges::topPercent(
                 KibitzerPreflopRanges::decode(in.card0,in.card1),
                 flatWidth+(in.price<=2*in.bigBlind?4:0));
+        if (in.strategicV6 && !premium(c)) {
+            const double odds=double(in.price)/(double(in.pot)+in.price);
+            if (in.pot>0 && in.randomEquity>=0 && in.randomEquity+.025<odds)
+                return {Action::Fold,0,true,"v6-preflop-random-equity-deficit"};
+            if (in.highestSet>5LL*in.bigBlind && !strong(c))
+                return {Action::Fold,0,true,"v6-preflop-oversized-raise-no-speculation"};
+            if (in.opponents==1 && in.conditionedLow>=0 && in.pot>0 &&
+                in.conditionedLow+.02<odds)
+                return {Action::Fold,0,true,"v6-preflop-conditioned-equity-deficit"};
+        }
         if (defend && in.price<=in.stack/5)
             return {Action::Call,in.price,true,"preflop-raise-defend-provisional"};
         return {Action::Fold,0,true,"preflop-raise-fold-outside-range"};
