@@ -712,6 +712,8 @@ private:
 	QString m_kibitzerStorageError;
 	QVariantMap m_kibitzerLastReview;
 	QVariantList m_kibitzerEvents;
+    QVariantList m_kibitzerPublicActions;
+    int m_kibitzerPublicHandId = -1;
 	int m_kibitzerHandId = -1;
 	QVariantList m_players;
 	int m_pot = 0;
