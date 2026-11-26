@@ -166,7 +166,7 @@ inline Decision choose(const Input &in) {
     // Cheap heads-up defense needs positive value in the pessimistic range,
     // and no multiway/side-pot ambiguity. Never manufacture equity from a chart.
     if (in.strategicV6 && in.alive==2 && in.opponents==1 &&
-        in.opponentAllIns==0 && in.price>0 && in.pot>0 &&
+        in.opponentAllIns<=1 && in.price>0 && in.pot>0 &&
         10LL*in.price<=in.pot && 10LL*in.price<=in.stack &&
         in.conditionedLow>=double(in.price)/(double(in.pot)+in.price)+.03)
         return {Action::Call,in.price,true,"v6-heads-up-cheap-conditioned-defense"};
