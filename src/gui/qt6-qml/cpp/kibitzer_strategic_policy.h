@@ -7,7 +7,13 @@ using namespace KibitzerAutoplay;
 inline Decision choose(const Input& in,const KibitzerBoard::Texture& board,
                        const KibitzerBoard::Estimate& range,int aggressionCount,
                        bool potEligible,const Decision& legacy){
-    if(in.price<=0 || !board.ready || !in.adviceReady || !in.rangesUsable)return legacy;
+    if(!board.ready || !in.adviceReady || !in.rangesUsable)return legacy;
+    if(in.price<=0){
+        if(legacy.action==Action::Raise && !board.privateMade &&
+           (board.paired||board.maxSuit>=3) && !in.modeledRaiseEdge)
+            return {Action::Check,0,true,"v6-no-random-value-probe-with-board-only-hand"};
+        return legacy;
+    }
     const bool exposed=in.stack>0 && (10LL*in.price>=in.stack ||
                     (in.pot>0&&4LL*in.price>=in.pot));
     const bool weak=!board.privateMade;
