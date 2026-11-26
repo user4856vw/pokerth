@@ -38,6 +38,29 @@ int main(){
     assert(estimateTurn.samples==45540&&estimateTurn.ready);
     assert(estimateTurn.winningDrawOuts[0]<8);
     assert(replay(turn,{{flop,816.0/1320},{turn,1826.0/2952}},1826,4778,3253,.5275).action==Action::Fold);
+    int nominal=0;double winDrawMass=0,allCardMass=0;
+    for(int x=0;x<52;++x){
+        allCardMass+=estimateTurn.outCardProbability[0][x];
+        if(estimateTurn.nominalOut[x]){
+            ++nominal;
+            winDrawMass+=estimateTurn.outWinProbability[0][x]*estimateTurn.outCardProbability[0][x];
+        }
+    }
+    assert(nominal==8&&std::abs(allCardMass-1)<1e-9);
+    assert(std::abs(44*winDrawMass-estimateTurn.winningDrawOuts[0])<1e-9);
+    // Community-only two pair with a lower pocket pair is NOT a private made hand.
+    assert(!analyze(state(0,13,{12,25,11,24})).privateMade);
+    assert(!analyze(state(0,13,{12,25,11,24,36})).privateMade);
+    // Improve a board straight: a higher straight IS private contribution.
+    assert(analyze(state(8,22,{3,17,31,45,7})).privateMade);
+    // Four hearts on a paired flop: nominal nine flush outs, not zero.
+    assert(analyze(state(13,19,{23,15,2})).straightOrFlushOuts==9);
+    // Three-way split on a board royal flush, no duplicate deals.
+    auto split=state(0,13,{47,48,49,50,51});
+    auto joint=estimateMultiway(split,{{},{}},5000,17);
+    assert(joint.ready&&std::abs(joint.equity[0]-1.0/3)<1e-12);
+    assert(!analyze(split).privateMade);
+    assert(estimateMultiway(turn,{{{flop,.62},{turn,.62}},{{turn,.62}}},5000,17).ready);
     // Two overnight paired-board failures: prior street observations are
     // explicitly assumed to be the same bettor for this scenario fixture.
     const auto a9f=state(38,20,{36,41,49}),a9t=state(38,20,{36,41,49,19}),a9r=state(38,20,{36,41,49,19,43});
@@ -77,6 +100,11 @@ int main(){
     assert(KibitzerPreflop::choose(p).action==Action::Fold);
     p.price=240;p.highestSet=240;p.pot=800;p.opponents=1;p.randomEquity=.5;
     p.conditionedLow=.35;assert(KibitzerPreflop::choose(p).action==Action::Call);
+    // Exact 15.175 BB KJ offsuit incident (2026-11-26 03:14:07Z).
+    p={};p.card0=48;p.card1=24;p.alive=10;p.roleIndex=9;p.bigBlind=40;
+    p.highestSet=607;p.price=607;p.pot=802;p.stack=4970;p.hasRaise=true;
+    p.strategicV6=true;p.opponents=5;p.randomEquity=.23021666666666674;
+    assert(KibitzerPreflop::choose(p).action==Action::Fold);
     p.card0=12;p.card1=25;p.highestSet=4000;p.price=4000;p.opponentAllIns=1;
     assert(KibitzerPreflop::choose(p).action==Action::Call);
     std::cout<<"v6 strategic regression suite passed\n";
