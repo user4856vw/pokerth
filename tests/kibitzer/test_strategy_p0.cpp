@@ -80,6 +80,52 @@ int main(){
     // air/draw call must not rely on unconditioned equity alone.
     assert(KibitzerStrategy::postflop(in,old,turn,{},4,4778,false,false).action==Action::Fold);
 
+    // v4 overnight repeats: exact public board, price and remaining
+    // stack from session 16. Same-aggressor sequences are test assumptions,
+    // not recovered private cards or historical opponent IDs.
+    {
+        Board qj{{4,25,18,38,51}}; // 6d Ah 7h As Ac; Jh Qs
+        std::vector<Observation> h{{1,0,5,420,240,160,0,5000,9},
+            {1,1,4,519,1080,0,0,4580,2},
+            {1,2,4,1019,2118,0,0,4061,2},
+            {1,3,4,2000,4156,0,0,3042,2}};
+        auto t=analyze(22,36,qj,4);
+        assert(t.valid&&!t.privateHand&&t.boardPairs==1&&t.nominalDrawOuts==0);
+        auto mt=assess(22,36,qj,4,{1},h,160,5000,17,t);
+        auto it=post(1019,3137,3635,.469);
+        auto dt=KibitzerStrategy::postflop(it,KibitzerAutoplay::choose(it),t,mt,4,3137,false,false);
+        std::cout<<"overnight QJ turn "<<mt.valueHeavy.equity<<" "<<mt.balanced.equity<<" "<<mt.bluffHeavy.equity<<" "<<dt.reason<<std::endl;
+        assert(dt.action==Action::Fold);
+        auto r2=analyze(22,36,qj,5);
+        assert(!r2.privateHand&&r2.maxBoardRank==3);
+        auto mr=assess(22,36,qj,5,{1},h,160,5000,17,r2);
+        auto ir=post(2000,6156,2616,.505);
+        auto dr=KibitzerStrategy::postflop(ir,KibitzerAutoplay::choose(ir),r2,mr,5,6156,false,false);
+        std::cout<<"overnight QJ river "<<mr.valueHeavy.equity<<" "<<mr.balanced.equity<<" "<<mr.bluffHeavy.equity<<" "<<dr.reason<<std::endl;
+        assert(dr.action==Action::Fold);
+    }
+    {
+        Board a9{{36,41,49,19,43}}; // Qs 4c Qc 8h 6c; As 9h
+        std::vector<Observation> h{{1,0,5,200,120,80,0,5000,10},
+            {1,1,4,272,440,0,0,4800,2},
+            {1,2,4,608,984,0,0,4528,2},
+            {1,3,4,1361,2200,0,0,3920,2}};
+        auto t=analyze(38,20,a9,4);
+        assert(!t.privateHand&&t.nominalDrawOuts==0);
+        auto mt=assess(38,20,a9,4,{1},h,80,5000,17,t);
+        auto it=post(608,1592,2741,.60);
+        auto dt=KibitzerStrategy::postflop(it,KibitzerAutoplay::choose(it),t,mt,4,1592,false,false);
+        std::cout<<"overnight A9 turn "<<mt.valueHeavy.equity<<" "<<mt.balanced.equity<<" "<<mt.bluffHeavy.equity<<" "<<dt.reason<<std::endl;
+        assert(dt.action==Action::Fold);
+        auto r2=analyze(38,20,a9,5);
+        assert(!r2.privateHand&&r2.maxBoardSuit==3);
+        auto mr=assess(38,20,a9,5,{1},h,80,5000,17,r2);
+        auto ir=post(1361,3561,2133,.60);
+        auto dr=KibitzerStrategy::postflop(ir,KibitzerAutoplay::choose(ir),r2,mr,5,3561,false,false);
+        std::cout<<"overnight A9 river "<<mr.valueHeavy.equity<<" "<<mr.balanced.equity<<" "<<mr.bluffHeavy.equity<<" "<<dr.reason<<std::endl;
+        assert(dr.action==Action::Fold);
+    }
+
     // Actual overnight KJo 15.175 BB call, and neighboring marginal hands.
     KibitzerPreflop::Input p;
     p.card0=48;p.card1=24;p.alive=10;p.roleIndex=9;p.stack=4970;
