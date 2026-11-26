@@ -1546,6 +1546,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         for(int i=0;i<publicState.n;++i) publicState.board[i]=m_boardCards.at(i).toInt();
     const auto texture=KibitzerBoard::analyze(publicState);
     int singleSeat=-1, eligible=0, living=0;
+    std::vector<int> opponentSeats;
     bool opponentAllIn=false;
     if(activeHand) {
         const auto active=activeHand->getActivePlayerList();
@@ -1554,13 +1555,14 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         if(active) for(const auto& p:*active) {
             if(p->getMyID()==0 || p->getMyAction()==PLAYER_ACTION_FOLD) continue;
             singleSeat=p->getMyID(); ++eligible;
+            opponentSeats.push_back(singleSeat);
             opponentAllIn|=p->getMyAction()==PLAYER_ACTION_ALLIN;
         }
     }
     // A two-player tournament has no third-player side pot. Otherwise a
     // single current opponent is safe only when there is no all-in condition.
-    const bool potEligible=eligible==1 && input.price<input.stack &&
-        (living==2 || (!opponentAllIn && activeHand && !activeHand->getAllInCondition()));
+    const bool potEligible=eligible>0 && input.price<input.stack &&
+        ((eligible==1 && living==2) || (!opponentAllIn && activeHand && !activeHand->getAllInCondition()));
     QVariantList trace;
     if(activeHand && m_kibitzerPublicHandId==activeHand->getMyID())
         trace=m_kibitzerPublicActions;
@@ -1621,17 +1623,45 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         if(input.price>0 && pricedAggression && !currentStreetObserved)
             evidence.push_back({publicState,double(input.price)/std::max(1,input.pot-input.price)});
     }
+    std::vector<std::vector<KibitzerBoard::Evidence>> histories;
+    int aggressionObservations=static_cast<int>(evidence.size());
+    if(eligible>1 && KibitzerBoard::validState(publicState)){
+        histories.resize(opponentSeats.size());
+        for(const QVariant& v:trace){
+            const auto e=v.toMap();
+            const auto it=std::find(opponentSeats.begin(),opponentSeats.end(),e.value("seat").toInt());
+            if(it==opponentSeats.end())continue;
+            const int a=e.value("action").toInt();
+            if((a!=PLAYER_ACTION_BET&&a!=PLAYER_ACTION_RAISE)||e.value("increment").toInt()<=0)continue;
+            const auto codes=e.value("boardCodes").toList();
+            KibitzerBoard::State previous=publicState;
+            previous.n=codes.size();
+            if(previous.n>publicState.n)continue;
+            bool prefix=true;
+            for(int i=0;i<previous.n;++i){
+                previous.board[i]=codes.at(i).toInt();
+                prefix&=previous.board[i]==publicState.board[i];
+            }
+            if(!prefix||!KibitzerBoard::validState(previous))continue;
+            histories[static_cast<std::size_t>(it-opponentSeats.begin())].push_back({previous,e.value("betFraction").toDouble()});
+            ++aggressionObservations;
+        }
+    }
     KibitzerBoard::Estimate inferred;
     const bool manualRange=rangeStatus==QLatin1String("ready");
     const auto strategicSeed=static_cast<std::uint32_t>(advice.value("seed").toULongLong())|1U;
-    if(potEligible && input.price>0 && !manualRange && !evidence.empty())
-        inferred=KibitzerBoard::estimate(publicState,evidence,m_kibitzerMonteCarloRuns,strategicSeed);
-    strategicAudit["model"]=QStringLiteral("public-action-weighted-hu-v1-provisional");
+    if(potEligible && input.price>0 && !manualRange && aggressionObservations>0){
+        if(eligible==1) inferred=KibitzerBoard::estimate(publicState,evidence,m_kibitzerMonteCarloRuns,strategicSeed);
+        else inferred=KibitzerBoard::estimateMultiway(publicState,histories,m_kibitzerMonteCarloRuns,strategicSeed);
+    }
+    strategicAudit["model"]=QStringLiteral("public-action-weighted-v1-provisional");
     strategicAudit["publicActions"]=trace;
     strategicAudit["eligibleOpponents"]=eligible;
     strategicAudit["singleOpponentSeat"]=eligible==1?singleSeat:-1;
     strategicAudit["potEligible"]=potEligible;
-    strategicAudit["aggressionObservations"]=static_cast<int>(evidence.size());
+    strategicAudit["aggressionObservations"]=aggressionObservations;
+    QVariantList opponentIds;for(int id:opponentSeats)opponentIds.append(id);
+    strategicAudit["opponentSeats"]=opponentIds;
     strategicAudit["boardPaired"]=texture.paired;
     strategicAudit["pairedRanks"]=texture.pairedRanks;
     strategicAudit["tripledRanks"]=texture.tripledRanks;
@@ -1655,7 +1685,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     if(inferred.ready){
         strategicAudit["conditionedEquities"]=QVariantList{inferred.equity[0],inferred.equity[1],inferred.equity[2]};
         strategicAudit["effectiveSamples"]=QVariantList{inferred.effectiveSamples[0],inferred.effectiveSamples[1],inferred.effectiveSamples[2]};
-        strategicAudit["winningDrawOuts44"]=QVariantList{inferred.winningDrawOuts[0],inferred.winningDrawOuts[1],inferred.winningDrawOuts[2]};
+        strategicAudit["winningDrawOuts"]=QVariantList{inferred.winningDrawOuts[0],inferred.winningDrawOuts[1],inferred.winningDrawOuts[2]};
+        strategicAudit["drawOutScale"]=46-2*eligible;
         if(publicState.n==4){
             QVariantList outs;
             for(int x=0;x<52;++x)if(inferred.nominalOut[x])
@@ -1671,7 +1702,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         if (!isPreflop) {
             if(manualRange) return legacy; // explicit user hypotheses take precedence
             return KibitzerStrategic::choose(input,texture,inferred,
-                static_cast<int>(evidence.size()),potEligible,legacy);
+                aggressionObservations,potEligible,legacy);
         }
         KibitzerPreflop::Input p;
         auto hand=m_game->getCurrentHand();
@@ -1749,7 +1780,10 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             {QStringLiteral("openingFrequency"),
                 external.applicable?QVariant(double(external.frequencyThousandths)/1000.0):QVariant()}
         };
-        legacy=KibitzerPreflop::choose(p);
+        auto legacyInput=p;
+        if(p.alive==2 && std::none_of(ring.begin(),ring.end(),[](const auto& seat){return seat.alive&&seat.button==1;}))
+            legacyInput.roleIndex=-1;
+        legacy=KibitzerPreflop::choose(legacyInput);
         p.strategicV6=true;
         p.opponents=eligible;
         p.randomEquity=input.adviceReady?advice.value("equity").toDouble():-1;
