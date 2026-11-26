@@ -37,7 +37,14 @@
 #include "playerinterface.h"
 #include "berointerface.h"
 #include "log.h"
+#include <vector>
 
+// Per-hand, public local betting evidence. No hole cards, board runout,
+// hidden bot state or private information is stored here.
+struct PublicBetAction {
+    int seat=0, street=0, action=0, paid=0, potBefore=0;
+    int highestBefore=0, committedBefore=0, stackBefore=0, players=0;
+};
 class HandInterface
 {
 public:
@@ -95,6 +102,12 @@ public:
 	virtual bool getCardsShown() const =0;
 
 	virtual void switchRounds() =0;
+
+	void recordPublicBetAction(const PublicBetAction &a) { publicBetActions_.push_back(a); }
+	const std::vector<PublicBetAction>& publicBetActions() const { return publicBetActions_; }
+
+private:
+	std::vector<PublicBetAction> publicBetActions_;
 
 protected:
 	virtual PlayerListIterator getSeatIt(unsigned) const =0;

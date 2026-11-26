@@ -38,6 +38,7 @@
 #include <core/loghelper.h>
 
 #include <fstream>
+#include <algorithm>
 #include <sstream>
 
 using namespace std;
@@ -1020,6 +1021,17 @@ void LocalPlayer::setHand(HandInterface* br)
 
 void LocalPlayer::action()
 {
+    const int evidenceRound=static_cast<int>(currentHand->getCurrentRound());
+    const int evidenceBefore=mySet, evidenceCash=myCash;
+    const int evidenceHighest=currentHand->getCurrentBeRo()->getHighestSet();
+    int evidencePot=currentHand->getBoard()->getPot();
+    int evidencePlayers=0;
+    const auto evidenceSeats=currentHand->getSeatsList();
+    if(evidenceSeats) for(const auto &p:*evidenceSeats) {
+        evidencePot+=p->getMySet();
+        if(p->getMyActiveStatus() && p->getMyAction()!=PLAYER_ACTION_FOLD)
+            ++evidencePlayers;
+    }
 
 	// 	int myOldCash = myCash;
 	// 	int oldHighestSet = currentHand->getCurrentBeRo()->getHighestSet();
@@ -1060,6 +1072,13 @@ void LocalPlayer::action()
 	//set that i was the last active player. need this for unhighlighting groupbox
 	currentHand->setPreviousPlayerID(myID);
 
+    // Capture at the authoritative action boundary, before advancing the
+    // round. Do not inspect the acting player's concealed cards.
+    if(evidenceRound>=0 && evidenceRound<=3 && myAction>=PLAYER_ACTION_FOLD &&
+       myAction<=PLAYER_ACTION_ALLIN)
+        currentHand->recordPublicBetAction({myID,evidenceRound,static_cast<int>(myAction),
+            std::max(0,mySet-evidenceBefore),evidencePot,evidenceHighest,
+            evidenceBefore,evidenceCash,evidencePlayers});
 	currentHand->getGuiInterface()->logPlayerActionMsg(myName, myAction, myLastRelativeSet);
 	currentHand->getGuiInterface()->nextPlayerAnimation();
 

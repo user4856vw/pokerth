@@ -55,6 +55,9 @@ public:
 
 	// Evaluates exactly seven cards. A larger return value = a stronger hand.
 	static unsigned value(const int* cards);
+
+	// Same ranking for exactly five, six or seven distinct valid cards.
+	static unsigned value(const int* cards, int count);
 };
 
 #endif

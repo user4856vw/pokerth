@@ -19,6 +19,7 @@
 #include "kibitzer_preflop_policy.h"
 #include "kibitzer_preflop_position.h"
 #include "kibitzer_evidence_open_ranges.h"
+#include "kibitzer_strategy_p0.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -1528,9 +1529,71 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     // Preflop requires an opening / limper / raise / shove policy. The
     // random multiway equity threshold is NOT valid for an unopened pot.
     const bool isPreflop = m_phaseText == QLatin1String("Preflop");
+    // The engine action journal belongs to this hand, not to the GUI.
+    // Only the hero cards and already exposed board prefix enter inference.
+    KibitzerBoard::Board visibleBoard{{-1,-1,-1,-1,-1}};
+    const int visibleCount=std::clamp(m_boardCardCount,0,5);
+    for(int i=0;i<visibleCount && i<m_boardCards.size();++i)
+        visibleBoard[i]=m_boardCards.at(i).toInt();
+    int own0=-1,own1=-1;
+    if(!m_players.isEmpty()){
+        const QVariantMap own=m_players.at(0).toMap();
+        own0=own.value("card0",-1).toInt();own1=own.value("card1",-1).toInt();
+    }
+    std::vector<KibitzerOpponent::Observation> actions;
+    std::vector<int> villains;
+    QVariantList historyAudit;
+    int evidenceBB=0;
+    int eligiblePot=std::max(0,input.pot);
+    bool sidePotUncertain=false,hasAllIn=false;
+    if(activeHand){
+        evidenceBB=activeHand->getSmallBlind()*2;
+        for(const auto& a:activeHand->publicBetActions()){
+            if(a.seat==0)continue;
+            actions.push_back({a.seat,a.street,a.action,a.paid,a.potBefore,
+                               a.highestBefore,a.committedBefore,a.stackBefore,a.players});
+            historyAudit.append(QVariantMap{
+                {"seat",a.seat},{"street",a.street},{"action",a.action},
+                {"paid",a.paid},{"potBefore",a.potBefore},{"highestBefore",a.highestBefore},
+                {"committedBefore",a.committedBefore},{"stackBefore",a.stackBefore},{"players",a.players}
+            });
+        }
+        auto players=activeHand->getActivePlayerList();
+        if(players)for(const auto& p:*players){
+            if(p->getMyID()==0||p->getMyAction()==PLAYER_ACTION_FOLD)continue;
+            villains.push_back(p->getMyID());
+            hasAllIn=hasAllIn||p->getMyAction()==PLAYER_ACTION_ALLIN;
+        }
+        auto seats=activeHand->getSeatsList();
+        auto bero=activeHand->getCurrentBeRo();
+        if(villains.size()==1 && seats && !seats->empty() && bero){
+            const auto hero=seats->front();
+            const int uncallable=std::max(0,bero->getHighestSet()-hero->getMySet()-hero->getMyCash());
+            eligiblePot=std::max(0,eligiblePot-uncallable);
+        }
+        sidePotUncertain=villains.size()>1 && (hasAllIn||input.price>=input.stack);
+    }
+    const bool manualRange=rangeStatus==QLatin1String("ready");
+    const auto boardAnalysis=KibitzerBoard::analyze(own0,own1,visibleBoard,visibleCount);
+    const std::uint32_t modelSeed=QRandomGenerator::global()->generate()|1U;
+    KibitzerOpponent::Assessment inferred;
+    // Skip unpriced preflop opening decisions. The existing chart, not
+    // random-equity or a made-up opponent response, governs these.
+    if(!manualRange && input.adviceReady && input.rangesUsable &&
+       (input.price>0 || !isPreflop) && !villains.empty() &&
+       int(villains.size())==input.opponents &&
+       ((isPreflop&&visibleCount==0)||(!isPreflop&&visibleCount>=3))){
+        inferred=KibitzerOpponent::assess(own0,own1,visibleBoard,visibleCount,
+            villains,actions,evidenceBB,m_kibitzerMonteCarloRuns,modelSeed,boardAnalysis);
+    }
     QVariantMap preflopAudit;
+    KibitzerAutoplay::Decision legacy{KibitzerAutoplay::Action::Check,0,true,"legacy-unavailable"};
     const auto d = [&]() -> KibitzerAutoplay::Decision {
-        if (!isPreflop) return KibitzerAutoplay::choose(input);
+        if (!isPreflop) {
+            legacy=KibitzerAutoplay::choose(input);
+            return KibitzerStrategy::postflop(input,legacy,boardAnalysis,inferred,
+                visibleCount,eligiblePot,sidePotUncertain,manualRange);
+        }
         KibitzerPreflop::Input p;
         auto hand=m_game->getCurrentHand();
         if (!hand) return KibitzerPreflop::choose(p);
@@ -1607,7 +1670,10 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             {QStringLiteral("openingFrequency"),
                 external.applicable?QVariant(double(external.frequencyThousandths)/1000.0):QVariant()}
         };
-        return KibitzerPreflop::choose(p);
+        legacy=KibitzerPreflop::choose(p);
+        if(manualRange || !input.adviceReady) return legacy;
+        return KibitzerStrategy::preflop(p,legacy,inferred,input.opponents,
+            advice.value("equity").toDouble(),eligiblePot,sidePotUncertain);
     }();
 
     // Only near-pure reference actions are comparable as a categorical
@@ -1638,9 +1704,52 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     case KibitzerAutoplay::Action::Fold:  move = QStringLiteral("FOLD"); break;
     case KibitzerAutoplay::Action::Raise: move = QStringLiteral("BET/RAISE"); break;
     }
+    auto actionText=[](KibitzerAutoplay::Action a){
+        switch(a){
+        case KibitzerAutoplay::Action::Check:return QStringLiteral("CHECK");
+        case KibitzerAutoplay::Action::Call:return QStringLiteral("CALL");
+        case KibitzerAutoplay::Action::Fold:return QStringLiteral("FOLD");
+        case KibitzerAutoplay::Action::Raise:return QStringLiteral("BET/RAISE");
+        }
+        return QStringLiteral("UNKNOWN");
+    };
+    auto estimateAudit=[](const KibitzerOpponent::Estimate& e){
+        return QVariantMap{
+            {"valid",e.valid},{"exact",e.exact},{"samples",e.samples},
+            {"equity",e.valid?QVariant(e.equity):QVariant()},
+            {"standardError",e.valid?QVariant(e.standardError):QVariant()},
+            {"drawProbability",e.valid&&e.exact?QVariant(e.drawProbability):QVariant()},
+            {"drawWinShare",e.valid&&e.exact?QVariant(e.drawWinShare):QVariant()}
+        };
+    };
+    QVariantList drawAudit;
+    if(boardAnalysis.valid)for(int k=0;k<52;++k)if(boardAnalysis.drawOut[k])
+        drawAudit.append(QVariantMap{{"card",k},{"unconditionedNextStreetShare",boardAnalysis.drawOutEquity[k]}});
+    const QVariantMap strategyAudit{
+        {"modelVersion",QStringLiteral("public-action-likelihood-provisional-v1")},
+        {"valid",inferred.valid},{"manualRange",manualRange},
+        {"legacyChoiceOnCorrectedState",actionText(legacy.action)},
+        {"legacyReason",QString::fromLatin1(legacy.reason)},{"legacyAmount",legacy.amount},
+        {"policyDiffers",d.action!=legacy.action||d.amount!=legacy.amount},
+        {"seed",static_cast<quint64>(modelSeed)},{"samplesRequested",m_kibitzerMonteCarloRuns},
+        {"eligiblePot",eligiblePot},{"sidePotUncertain",sidePotUncertain},
+        {"required",input.price>0&&eligiblePot>0?double(input.price)/(double(input.price)+eligiblePot):0.0},
+        {"observedAggression",inferred.observedAggression},{"aggressiveActions",inferred.aggressiveActions},
+        {"aggressiveStreets",inferred.aggressiveStreets},
+        {"balanced",estimateAudit(inferred.balanced)},{"bluffHeavy",estimateAudit(inferred.bluffHeavy)},
+        {"valueHeavy",estimateAudit(inferred.valueHeavy)},{"publicOpponentActions",historyAudit},
+        {"board",QVariantMap{
+            {"valid",boardAnalysis.valid},{"privateMade",boardAnalysis.privateHand},
+            {"madeCategory",boardAnalysis.madeCategory},{"boardPairs",boardAnalysis.boardPairs},
+            {"maxBoardRank",boardAnalysis.maxBoardRank},{"maxBoardSuit",boardAnalysis.maxBoardSuit},
+            {"currentAhead",boardAnalysis.currentAhead},{"currentTie",boardAnalysis.currentTie},
+            {"nominalDrawOuts",boardAnalysis.nominalDrawOuts},
+            {"unbeatableDrawOuts",boardAnalysis.unbeatableDrawOuts},{"outs",drawAudit}
+        }}
+    };
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v5-shadow")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v6-p0")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},
@@ -1651,7 +1760,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         {QStringLiteral("callPrice"), input.price},
         {QStringLiteral("remainingStack"), input.stack},
         {QStringLiteral("riverCounterraise"), input.riverFacingCounterraise},
-        {QStringLiteral("preflopReference"), preflopAudit}
+        {QStringLiteral("preflopReference"), preflopAudit},
+        {QStringLiteral("strategyP0"), strategyAudit}
     };
 
     bool executed = true;

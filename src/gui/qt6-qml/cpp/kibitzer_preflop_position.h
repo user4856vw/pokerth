@@ -24,6 +24,16 @@ inline Result derive(const std::vector<Seat> &seats,int heroId=0) {
         if (s.button==1) out.dealerId=s.id;
     }
     out.alive=static_cast<int>(ring.size());
+    // PokerTH LocalHand::assignButtons overwrites the HU dealer marker
+    // with BUTTON_SMALL_BLIND. Prefer that marker if no dealer is visible.
+    if (out.alive==2 && out.dealerId<0) {
+        int sb=-1,bb=-1,nsb=0,nbb=0;
+        for(const Seat &s:seats) if(s.alive) {
+            if(s.button==2) {sb=s.id;++nsb;}
+            if(s.button==3) {bb=s.id;++nbb;}
+        }
+        if(nsb==1 && nbb==1 && sb!=bb) out.dealerId=sb;
+    }
     if (out.alive<2 || out.dealerId<0) return out;
     // Do not rely on underlying PlayerList ordering: this engine keeps
     // fixed seat IDs, while active player lists change as people bust.

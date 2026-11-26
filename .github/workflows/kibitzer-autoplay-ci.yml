@@ -2,9 +2,9 @@ name: Kibitzer AUTO TEST policy checks
 
 on:
   push:
-    branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5]
+    branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5, experiment/kibitzer-strategy-p0-v6]
   pull_request:
-    branches: [pokerth-trainer-v3, feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4]
+    branches: [pokerth-trainer-v3, feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5]
 
 permissions:
   contents: read
@@ -26,3 +26,10 @@ jobs:
           done
       - name: Regression test offline evidence report
         run: python3 -m unittest discover -s tests/kibitzer -p test_evidence_report.py -v
+      - name: Compile and run board, inference and P0 strategy regressions
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp -I src/engine/local_engine \
+            tests/kibitzer/test_strategy_p0.cpp src/engine/local_engine/handevaluator.cpp \
+            -o /tmp/kibitzer-p0
+          /tmp/kibitzer-p0
