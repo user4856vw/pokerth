@@ -1,10 +1,12 @@
 name: PokerTH Trainer Android APK (local-only)
 
 # Place this file into a fork of pokerth/pokerth AFTER applying the kibitzer patch.
-# Manual build, for sideloading only. Uses the upstream build_android_qml.sh.
+# Manual or dedicated-branch build, for sideloading only. Uses the upstream build_android_qml.sh.
 # If secrets are absent, signs with a fresh TEST key; that APK will not update
 # any prior installation (Android requires the same signing key for updates).
 on:
+  push:
+    branches: ['build/kibitzer-android']
   workflow_dispatch:
     inputs:
       abi:
@@ -26,7 +28,7 @@ jobs:
     env:
       BUILD_TARGET: pokerth_qml-client
       PACKAGE_FORMAT: apk
-      ANDROID_ABIS: ${{ inputs.abi }}
+      ANDROID_ABIS: ${{ inputs.abi || 'arm64-v8a' }}
       QT_VERSION: 6.9.3
       ANDROID_API_LEVEL: '35'
       ANDROID_MIN_SDK: '28'
@@ -70,25 +72,25 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/Qt
-          key: kibitzer-qt-693-${{ inputs.abi }}-${{ github.run_id }}
+          key: kibitzer-qt-693-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_id }}
           restore-keys: |
-            kibitzer-qt-693-${{ inputs.abi }}-
+            kibitzer-qt-693-${{ inputs.abi || 'arm64-v8a' }}-
       - name: Restore vcpkg
         uses: actions/cache/restore@v4
         with:
           path: ~/vcpkg
-          key: kibitzer-vcpkg-${{ inputs.abi }}-${{ github.run_id }}
+          key: kibitzer-vcpkg-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_id }}
           restore-keys: |
-            kibitzer-vcpkg-${{ inputs.abi }}-
+            kibitzer-vcpkg-${{ inputs.abi || 'arm64-v8a' }}-
       - name: Restore Gradle cache
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: kibitzer-gradle-${{ inputs.abi }}-${{ github.run_id }}
+          key: kibitzer-gradle-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_id }}
           restore-keys: |
-            kibitzer-gradle-${{ inputs.abi }}-
+            kibitzer-gradle-${{ inputs.abi || 'arm64-v8a' }}-
       - name: Prepare signing key
         env:
           KEY_BASE64: ${{ secrets.KIBITZER_KEYSTORE_BASE64 }}
@@ -174,13 +176,13 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/Qt
-          key: kibitzer-qt-693-${{ inputs.abi }}-${{ github.run_id }}
+          key: kibitzer-qt-693-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_id }}
       - name: Save vcpkg cache
         if: always()
         uses: actions/cache/save@v4
         with:
           path: ~/vcpkg
-          key: kibitzer-vcpkg-${{ inputs.abi }}-${{ github.run_id }}
+          key: kibitzer-vcpkg-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_id }}
       - name: Save Gradle cache
         if: always()
         uses: actions/cache/save@v4
@@ -188,10 +190,19 @@ jobs:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: kibitzer-gradle-${{ inputs.abi }}-${{ github.run_id }}
+          key: kibitzer-gradle-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_id }}
       - name: Upload APK
+        id: apk
         uses: actions/upload-artifact@v4
         with:
-          name: PokerTH-Kibitzer-${{ inputs.abi }}-${{ github.run_number }}
+          name: PokerTH-Kibitzer-${{ inputs.abi || 'arm64-v8a' }}-${{ github.run_number }}
           path: PokerTH-*.apk
           if-no-files-found: error
+      - name: Publish verified artifact link
+        run: |
+          {
+            echo '### Signed Kibitzer APK'
+            echo 'Source revision: `'"${GITHUB_SHA}"'`'
+            echo 'Architecture: `'"${ANDROID_ABIS}"'`'
+            echo '[Download APK archive](${{ steps.apk.outputs.artifact-url }})'
+          } >> "$GITHUB_STEP_SUMMARY"
