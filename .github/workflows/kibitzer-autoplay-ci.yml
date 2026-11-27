@@ -2,7 +2,7 @@ name: Kibitzer AUTO TEST policy checks
 
 on:
   push:
-    branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5, experiment/kibitzer-strategy-p0-v6]
+    branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5, experiment/kibitzer-strategy-p0-v6, experiment/kibitzer-strategy-p0-v7]
   pull_request:
     branches: [pokerth-trainer-v3, feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5]
 

@@ -154,6 +154,17 @@ jobs:
             tests/kibitzer/test_pro_matcher.cpp -o /tmp/kibitzer-pro-matcher-test
           /tmp/kibitzer-pro-matcher-test
           python3 scripts/validate_kibitzer_pro_corpus.py
+      - name: Gate APK on preflop policy and P0/V7 incident regressions
+        run: |
+          set -eu
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp tests/kibitzer/test_preflop_policy.cpp -o /tmp/kibitzer-preflop
+          /tmp/kibitzer-preflop
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp -I src/engine/local_engine \
+            tests/kibitzer/test_strategy_p0.cpp src/engine/local_engine/handevaluator.cpp \
+            -o /tmp/kibitzer-p0-v7
+          /tmp/kibitzer-p0-v7
       - name: Build signed APK
         run: |
           export VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))

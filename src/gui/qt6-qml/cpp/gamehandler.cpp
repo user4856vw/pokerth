@@ -1591,7 +1591,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     const auto d = [&]() -> KibitzerAutoplay::Decision {
         if (!isPreflop) {
             legacy=KibitzerAutoplay::choose(input);
-            return KibitzerStrategy::postflop(input,legacy,boardAnalysis,inferred,
+            return KibitzerStrategy::postflopV7(input,legacy,boardAnalysis,inferred,
                 visibleCount,eligiblePot,sidePotUncertain,manualRange);
         }
         KibitzerPreflop::Input p;
@@ -1670,10 +1670,49 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             {QStringLiteral("openingFrequency"),
                 external.applicable?QVariant(double(external.frequencyThousandths)/1000.0):QVariant()}
         };
+        // All seats (including folded contributions) must reconcile to
+        // the engine pot before a conservative side-pot call is allowed.
+        std::vector<int> otherCommitted;
+        for(const auto& player:*seats)
+            if(player->getMyID()!=hero->getMyID())
+                otherCommitted.push_back(player->getMySet());
+        const auto bound=KibitzerStrategy::preflopPotBound(
+            p.pot,p.heroCommitted,p.price,otherCommitted);
+        std::vector<KibitzerOpponent::Observation> fullPreflopHistory;
+        for(const auto& a:hand->publicBetActions())
+            if(a.street==0)
+                fullPreflopHistory.push_back({a.seat,a.street,a.action,a.paid,
+                    a.potBefore,a.highestBefore,a.committedBefore,a.stackBefore,a.players});
+        const int priceIncreases=KibitzerStrategy::preflopPriceIncreases(fullPreflopHistory);
+        preflopAudit["priceIncreases"]=priceIncreases;
+        preflopAudit["conservativePotBoundValid"]=bound.valid;
+        preflopAudit["conservativeEligiblePot"]=bound.valid?QVariant(bound.eligible):QVariant();
         legacy=KibitzerPreflop::choose(p);
-        if(manualRange || !input.adviceReady) return legacy;
-        return KibitzerStrategy::preflop(p,legacy,inferred,input.opponents,
-            advice.value("equity").toDouble(),eligiblePot,sidePotUncertain);
+        // Keep the uncalibrated opening/shove chart as an explicit fallback.
+        // This is a diagnostic only, never a fabricated fold probability.
+        if(legacy.action==KibitzerAutoplay::Action::Raise&&legacy.amount==p.stack&&p.pot>0){
+            int risk=0;
+            if(active)for(const auto& player:*active){
+                if(player->getMyID()==hero->getMyID()||
+                   player->getMyAction()==PLAYER_ACTION_FOLD)continue;
+                const long long match=static_cast<long long>(player->getMySet())+
+                    player->getMyCash()-p.heroCommitted;
+                if(match>0)risk=std::max(risk,static_cast<int>(
+                    std::min<long long>(p.stack,match)));
+            }
+            preflopAudit["shoveEffectiveRiskUpperBound"]=risk;
+            const double breakeven=KibitzerStrategy::shoveBreakEvenFold(p.pot,risk,0,0.0);
+            preflopAudit["shoveZeroEquityBreakEvenFold"]=std::isfinite(breakeven)?
+                QVariant(breakeven):QVariant();
+            preflopAudit["shoveResponseModel"]=QStringLiteral("unavailable-chart-fallback");
+        }
+        // A manual range suppresses inference, not the ban on an unmodeled
+        // fourth or later bet. No inferred call is manufactured without it.
+        const auto evidence=(manualRange||!input.adviceReady)?
+            KibitzerOpponent::Assessment{}:inferred;
+        return KibitzerStrategy::preflopV7(p,legacy,evidence,input.opponents,
+            (!manualRange&&input.adviceReady)?advice.value("equity").toDouble():-1.0,
+            eligiblePot,sidePotUncertain,priceIncreases,bound);
     }();
 
     // Only near-pure reference actions are comparable as a categorical
@@ -1749,7 +1788,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     };
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v6-p0")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v7-p0-regression")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},

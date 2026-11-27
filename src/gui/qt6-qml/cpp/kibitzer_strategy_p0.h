@@ -5,6 +5,8 @@
 #include "kibitzer_preflop_policy.h"
 #include "kibitzer_opponent_model.h"
 #include <algorithm>
+#include <limits>
+#include <vector>
 
 namespace KibitzerStrategy {
 using KibitzerAutoplay::Action;
@@ -113,5 +115,112 @@ inline Decision postflop(const KibitzerAutoplay::Input& in,Decision old,
     if(old.action==Action::Call&&weak&&dangerous&&exposure>=.25&&required>=.15)
         return fold("v6-unmodeled-dangerous-board-stack-risk");
     return old;
+}
+
+// V7: conservative showdown-share lower bound for a preflop call.
+// Verify the ledger against the engine pot; if it does not reconcile,
+// do not use it to authorize a multiway stack commitment.
+// Each opponent's contribution beyond the hero's final contribution is
+// excluded. Hero's global showdown share cannot exceed hero's share in
+// any pot tier for which hero is eligible. This is a lower bound assuming
+// all remaining players reach showdown, NOT a full future-betting/ICM EV.
+struct PreflopPotBound {
+    bool valid=false;
+    int eligible=0; // chips already in the pot, before adding the call
+};
+inline PreflopPotBound preflopPotBound(int pot,int committed,int price,
+                                      const std::vector<int>& others) {
+    if(pot<=0||committed<0||price<=0||others.empty())return {};
+    const long long cap=static_cast<long long>(committed)+price;
+    long long total=committed,eligible=committed;
+    bool matched=false;
+    for(int x:others){
+        if(x<0)return {};
+        total+=x;
+        eligible+=std::min<long long>(x,cap);
+        matched=matched||x>=cap;
+    }
+    if(!matched||total!=pot||eligible<=0||eligible>pot)return {};
+    return {true,static_cast<int>(eligible)};
+}
+inline bool usableEstimate(const KibitzerOpponent::Estimate& e){
+    return e.valid&&std::isfinite(e.equity)&&e.equity>=0&&e.equity<=1&&
+        std::isfinite(e.standardError)&&e.standardError>=0;
+}
+inline bool usableAssessment(const KibitzerOpponent::Assessment& m){
+    return m.valid&&usableEstimate(m.balanced)&&usableEstimate(m.valueHeavy)&&
+        usableEstimate(m.bluffHeavy);
+}
+// Count every public preflop price increase, including short all-in increases.
+// A short all-in does not necessarily reopen raising; the engine's legal
+// action bounds govern that. We never use it to authorize another raise.
+inline int preflopPriceIncreases(const std::vector<KibitzerOpponent::Observation>& history){
+    int n=0;
+    for(const auto& a:history)
+        if(a.street==0&&KibitzerOpponent::aggression(a)&&
+           static_cast<long long>(a.committedBefore)+a.paid>a.highestBefore)
+            ++n;
+    return n;
+}
+// Exact break-even fold frequency for a supplied single-caller hypothesis.
+// P includes existing commitments, risk and response are additional chips.
+// The comparison is to surrendering the pot, not to checking/calling.
+inline double shoveBreakEvenFold(int pot,int risk,int response,double equity){
+    if(pot<=0||risk<=0||response<0||!std::isfinite(equity)||equity<0||equity>1)
+        return std::numeric_limits<double>::quiet_NaN();
+    const double called=equity*(double(pot)+risk+response)-risk;
+    return called>=0?0.0:-called/(pot-called);
+}
+inline Decision preflopV7(const KibitzerPreflop::Input& p,Decision old,
+                          const KibitzerOpponent::Assessment& model,int opponents,
+                          double randomEquity,int eligiblePot,bool sidePotUncertain,
+                          int priceIncreases,PreflopPotBound bound) {
+    const auto fallback=std::isfinite(randomEquity)&&randomEquity>=0&&randomEquity<=1?
+        preflop(p,old,model,opponents,randomEquity,eligiblePot,sidePotUncertain):old;
+    if(p.price<=0||p.price>p.stack||p.bigBlind<=0||p.stack<=0)return fallback;
+    const auto c=KibitzerPreflop::cards(p.card0,p.card1);
+    if(c.hi==0||(c.pair&&c.hi==14))return fallback; // preserve the existing AA invariant
+    const bool laterRaise=p.heroPreviouslyRaised||priceIncreases>=2;
+    const bool contested=laterRaise||p.opponentAllIns>0||
+        (p.hasRaise&&fallback.action==Action::Call);
+    if(!contested)return fallback;
+    const int pot=sidePotUncertain?(bound.valid?bound.eligible:0):eligiblePot;
+    // Reconsider BOTH old calls and old folds. The old stack/3 and stack/5
+    // cutoffs must not veto positive model-supported showdown chip EV.
+    // The existing 1.96-SE envelope is only a sampling-uncertainty check
+    // across three provisional priors, not a calibrated confidence interval
+    // for the opponent's true range or a guarantee of future realization.
+    if(pot>0&&opponents>0&&usableAssessment(model)){
+        const double required=odds(p.price,pot);
+        if(lower(model)>required)
+            return call(p.price,sidePotUncertain?
+                "v7-preflop-sidepot-conservative-showdown-call":
+                "v7-preflop-conditioned-showdown-call");
+        // Upper equity against all opponents does NOT bound equity against
+        // a subset eligible for a side pot. Never use it to veto such a call.
+        if(!sidePotUncertain&&upper(model)<required)
+            return fold("v7-preflop-conditioned-showdown-deficit");
+    }
+    // A three-bet chart is not authority for a fourth or later bet.
+    // No reliable response model: do not manufacture a further raise.
+    if(laterRaise&&fallback.action==Action::Raise)
+        return fold("v7-preflop-later-raise-no-supported-call-or-reraise");
+    // Preserve the frozen fallback in sensitive/missing-model cases.
+    // The audit retains its original reason; this is not a new EV claim.
+    return fallback;
+}
+inline Decision postflopV7(const KibitzerAutoplay::Input& in,Decision old,
+                           const KibitzerBoard::Analysis& board,
+                           const KibitzerOpponent::Assessment& model,
+                           int boardSize,int eligiblePot,bool sidePotUncertain,
+                           bool manualRange) {
+    // A free first action with high overall equity is not evidence that
+    // worse hands will call a bet. Remove unmodeled value probes on the
+    // terminal street and boards permitting trips/full houses or flushes.
+    // A genuinely modeled raise is nonprovisional in the legacy policy.
+    if(in.price==0&&old.action==Action::Raise&&old.provisional&&board.valid&&
+       (boardSize==5||board.boardPairs>0||board.maxBoardSuit>=3))
+        return {Action::Check,0,true,"v7-no-unmodeled-value-probe-on-river-or-threat-board"};
+    return postflop(in,old,board,model,boardSize,eligiblePot,sidePotUncertain,manualRange);
 }
 } // namespace KibitzerStrategy

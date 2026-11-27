@@ -167,5 +167,146 @@ int main(){
     const auto mc1=monteCarlo(12,25,empty,0,{pri,pri},1200,123);
     const auto mc2=monteCarlo(12,25,empty,0,{pri,pri},1200,123);
     assert(mc1.valid&&mc1.equity==mc2.equity&&mc1.samples==mc2.samples);
-    std::cout<<"P0 board, weighted ranges, preflop and HU regressions passed\n";
+    // V7 incident fixtures. Public cards, pot, price and stack are recorded;
+    // range estimates are logged summaries (rounded to five decimals),
+    // not newly simulated opponent cards.
+    auto logged=[](double balanced,double value,double bluff,double se){
+        Assessment x;x.valid=true;x.observedAggression=true;
+        x.balanced.valid=x.valueHeavy.valid=x.bluffHeavy.valid=true;
+        x.balanced.equity=balanced;x.valueHeavy.equity=value;x.bluffHeavy.equity=bluff;
+        x.balanced.standardError=x.valueHeavy.standardError=x.bluffHeavy.standardError=se;
+        return x;
+    };
+    {
+        KibitzerPreflop::Input k;
+        k.card0=11;k.card1=50;k.alive=10;k.roleIndex=7;k.bigBlind=80;
+        k.highestSet=2160;k.heroCommitted=720;k.stack=4280;k.price=1440;
+        k.pot=3640;k.hasRaise=true;k.heroPreviouslyRaised=true;
+        auto m=logged(.63510,.63240,.65193,.00679);
+        auto legacy=KibitzerPreflop::choose(k);
+        assert(legacy.action==Action::Fold);
+        for(int cost:{1426,1427,1440}){
+            k.price=cost;k.highestSet=k.heroCommitted+cost;
+            auto d=KibitzerStrategy::preflopV7(k,KibitzerPreflop::choose(k),m,2,.683,
+                k.pot,false,3,{});
+            assert(d.action==Action::Call&&d.amount==cost);
+        }
+        // Price/equity, not hand label or already invested chips, determines
+        // whether a call is supported. A sufficiently adverse range folds.
+        k.price=1440;
+        assert(KibitzerStrategy::preflopV7(k,legacy,logged(.15,.16,.17,.001),
+            2,.683,k.pot,false,3,{}).action==Action::Fold);
+        assert(KibitzerStrategy::preflopV7(k,legacy,{},2,.683,k.pot,false,3,{}).action==Action::Fold);
+    }
+    {
+        // QQ four-bet incident: first decision before hero's 2205-chip raise.
+        KibitzerPreflop::Input q;
+        q.card0=49;q.card1=10;q.alive=10;q.roleIndex=0;q.bigBlind=80;
+        q.highestSet=q.price=735;q.stack=5210;q.pot=1065;q.hasRaise=true;
+        q.minRaise=1260;q.maxRaise=5210;
+        auto oldQ=KibitzerPreflop::choose(q);
+        assert(oldQ.action==Action::Raise&&oldQ.amount==2205);
+        auto qm=logged(.40274,.39828,.41859,.00695);
+        assert(KibitzerStrategy::preflopV7(q,oldQ,qm,4,.43,q.pot,false,2,{}).action!=Action::Raise);
+        // Second recorded state is a counterfactual once the first changes.
+        q.highestSet=3494;q.heroCommitted=2205;q.price=1289;q.stack=3005;
+        q.pot=9313;q.opponentAllIns=1;q.heroPreviouslyRaised=true;
+        const auto bound=KibitzerStrategy::preflopPotBound(q.pot,q.heroCommitted,q.price,
+            {3494,3494,80,40});
+        assert(bound.valid&&bound.eligible==9313);
+        auto oldFold=KibitzerPreflop::choose(q);assert(oldFold.action==Action::Fold);
+        auto m=logged(.54563,.53777,.57150,.00702);
+        assert(KibitzerStrategy::preflopV7(q,oldFold,m,2,.60,q.pot,true,4,bound).action==Action::Call);
+        assert(KibitzerStrategy::preflopV7(q,oldFold,m,2,.60,q.pot,true,4,{}).action==Action::Fold);
+        // Opponent overbet excluded, dead money included, invalid ledger rejected.
+        auto capped=KibitzerStrategy::preflopPotBound(1200,100,200,{900,200});
+        assert(capped.valid&&capped.eligible==600);
+        assert(!KibitzerStrategy::preflopPotBound(1201,100,200,{900,200}).valid);
+        assert(!KibitzerStrategy::preflopPotBound(500,100,300,{200,200}).valid);
+        assert(!KibitzerStrategy::preflopPotBound(1200,100,200,{1101,-1}).valid);
+        // Preflop raises and price-increasing all-ins count; all-in calls,
+        // ordinary calls and postflop bets do not.
+        const std::vector<Observation> trace{
+            {1,0,5,210,120,80,0,5000,10},
+            {2,0,5,735,330,210,0,5000,9},
+            {0,0,3,735,1065,735,0,5210,8},
+            {1,0,6,525,1800,735,210,525,8},
+            {2,0,6,1,2325,735,735,1,8},
+            {2,1,4,100,2326,0,0,100,2}};
+        assert(KibitzerStrategy::preflopPriceIncreases(trace)==3);
+    }
+    {
+        // All 26 overnight raise-then-fold records. Conditional replay of
+        // the decision snapshots, not a claim to replay entire tournaments.
+        // Side-pot records lack a verified full ledger here: never promote.
+        struct Incident {int price,pot,stack;double b,v,f;bool side;};
+        const Incident rows[]={
+          {2635,10315,13235,.5259,.5140,.5626,false},
+          {350,1000,4840,.38953,.37603,.40560,false},
+          {400,840,4520,.61010,.60220,.62240,false},
+          {11316,23771,11607,.29970,.29360,.29350,true},
+          {100,210,4950,.55690,.54520,.59040,false},
+          {2387,10480,2387,.37833,.35910,.42747,true},
+          {4057,5523,5463,.42717,.41443,.47363,true},
+          {2324,5844,9003,.53810,.51980,.57690,false},
+          {400,840,4450,.49870,.47450,.54000,false},
+          {2157,6714,3650,.36533,.35023,.39860,true},
+          {237,437,4920,.61640,.61630,.65020,false},
+          {2627,7347,3540,.41667,.38237,.44253,true},
+          {600,1220,4841,.43117,.42810,.45363,true},
+          {400,840,4800,.48730,.45440,.52650,false},
+          {2375,4935,3860,.40153,.38780,.42067,true},
+          {1600,3360,4542,.61990,.60240,.63230,false},
+          {1178,5338,8640,.53440,.51850,.57330,false},
+          {700,1220,4620,.58450,.54650,.59840,false},
+          {2620,5740,2620,.54510,.52610,.58090,false},
+          {899,1859,2220,.55640,.51980,.59490,false},
+          {200,420,4890,.50410,.48320,.54610,false},
+          {1440,3640,4280,.63510,.63240,.65193,false},
+          {1200,2240,2494,.58930,.55440,.63150,false},
+          {540,980,4820,.67170,.65240,.70110,false},
+          {3094,6934,6846,.60980,.58830,.62380,false},
+          {1289,9313,3005,.54563,.53777,.57150,true}
+        };
+        int promoted=0,sideHeld=0;
+        for(const auto& z:rows){
+            KibitzerPreflop::Input t;
+            // Non-AA placeholder: this regression tests the arithmetic
+            // branch independently of hand class; exact KK/QQ above.
+            t.card0=11;t.card1=50;t.alive=10;t.bigBlind=80;t.price=z.price;
+            t.pot=z.pot;t.stack=z.stack;t.highestSet=z.price;
+            t.hasRaise=true;t.heroPreviouslyRaised=true;
+            const Decision old{Action::Fold,0,true,"recorded-v6-fold"};
+            auto m=logged(z.b,z.v,z.f,.0071); // conservative rounded SE bound
+            const auto d=KibitzerStrategy::preflopV7(t,old,m,2,.6,z.pot,z.side,3,{});
+            if(z.side){assert(d.action==Action::Fold);++sideHeld;}
+            else if(KibitzerStrategy::lower(m)>KibitzerStrategy::odds(z.price,z.pot)){
+                assert(d.action==Action::Call&&d.amount==z.price);++promoted;
+            }else assert(d.action==Action::Fold);
+        }
+        std::cout<<"V7 snapshot replay: "<<promoted<<" supported calls, "<<sideHeld
+            <<" uncertain side-pot folds held (QQ separately reconciled)\n";
+        assert(promoted>0&&sideHeld==8);
+    }
+    {
+        // Exact A8 river incident: trips, paired three-club board.
+        Board b{{39,51,10,38,50}};
+        const auto a8=analyze(25,6,b,5);
+        assert(a8.valid&&a8.boardPairs==1&&a8.maxBoardSuit==3);
+        auto i=post(0,3680,3340,.9075);
+        const Decision probe{Action::Raise,1840,true,"postflop-value-probe-half-pot-unmodeled-response"};
+        assert(KibitzerStrategy::postflopV7(i,probe,a8,{},5,3680,false,false).action==Action::Check);
+        auto at=analyze(25,6,b,4);
+        assert(KibitzerStrategy::postflopV7(i,probe,at,{},4,3680,false,false).action==Action::Check);
+        const Decision modeled{Action::Raise,1840,false,"explicit-conditional-bet-ev-raise"};
+        assert(KibitzerStrategy::postflopV7(i,modeled,a8,{},5,3680,false,true).action==Action::Raise);
+        // Shove algebra: zero-equity risk, positive called EV, invalid input.
+        const double f=KibitzerStrategy::shoveBreakEvenFold(960,5300,5300,0);
+        assert(std::abs(f-5300.0/6260.0)<1e-12);
+        const double g=KibitzerStrategy::shoveBreakEvenFold(960,5300,5300,.30);
+        assert(std::abs(g-(5300-.30*(960+10600))/(960+5300-.30*(960+10600)))<1e-12);
+        assert(KibitzerStrategy::shoveBreakEvenFold(960,5300,5300,1)==0);
+        assert(std::isnan(KibitzerStrategy::shoveBreakEvenFold(0,5300,5300,.3)));
+    }
+    std::cout<<"P0 and V7 incident regressions passed\n";
 }
