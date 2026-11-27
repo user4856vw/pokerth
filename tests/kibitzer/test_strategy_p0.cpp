@@ -22,6 +22,15 @@ static void verifyRange(const Range& r,int a,int b,const Board& board,int n){
     }
     assert(std::abs(sum-1)<1e-10);
 }
+// Every inherited preflop fixture must retain its prior action through V7.
+static Decision comparablePreflop(const KibitzerPreflop::Input& p,Decision old,
+    const Assessment& m,int opponents,double random,int pot,bool side){
+    const auto prior=KibitzerStrategy::preflop(p,old,m,opponents,random,pot,side);
+    const auto next=KibitzerStrategy::preflopV7(p,old,m,opponents,random,pot,side,
+        p.hasRaise?1:0,{});
+    assert(prior.action==next.action&&prior.amount==next.amount);
+    return next;
+}
 int main(){
     // Real PokerTH HU blind markers, including nonadjacent seat IDs.
     using KibitzerPreflopPosition::Seat;
@@ -55,7 +64,7 @@ int main(){
     assert(m.balanced.drawProbability>0&&m.balanced.drawWinShare<m.balanced.drawProbability);
     auto in=post(1826,4778,3253,.528);
     auto old=KibitzerAutoplay::choose(in);assert(old.action==Action::Call);
-    const auto revised=KibitzerStrategy::postflop(in,old,turn,m,4,4778,false,false);
+    const auto revised=KibitzerStrategy::postflopV7(in,old,turn,m,4,4778,false,false);
     std::cout<<"original QJ turn "<<m.valueHeavy.equity<<" "<<m.balanced.equity<<" "<<m.bluffHeavy.equity<<" required "<<in.required<<" "<<revised.reason<<std::endl;
     assert(revised.action==Action::Fold);
 
@@ -74,11 +83,11 @@ int main(){
     assert(strong.privateHand&&strong.madeCategory==6);
     auto strongM=assess(24,37,board,4,{1},line,160,5000,17,strong);
     auto strongIn=post(1826,4778,3253,.99);
-    assert(KibitzerStrategy::postflop(strongIn,KibitzerAutoplay::choose(strongIn),
+    assert(KibitzerStrategy::postflopV7(strongIn,KibitzerAutoplay::choose(strongIn),
         strong,strongM,4,4778,false,false).action==Action::Call);
     // Even with unavailable action history a costly paired-board
     // air/draw call must not rely on unconditioned equity alone.
-    assert(KibitzerStrategy::postflop(in,old,turn,{},4,4778,false,false).action==Action::Fold);
+    assert(KibitzerStrategy::postflopV7(in,old,turn,{},4,4778,false,false).action==Action::Fold);
 
     // v4 overnight repeats: exact public board, price and remaining
     // stack from session 16. Same-aggressor sequences are test assumptions,
@@ -93,14 +102,14 @@ int main(){
         assert(t.valid&&!t.privateHand&&t.boardPairs==1&&t.nominalDrawOuts==0);
         auto mt=assess(22,36,qj,4,{1},h,160,5000,17,t);
         auto it=post(1019,3137,3635,.469);
-        auto dt=KibitzerStrategy::postflop(it,KibitzerAutoplay::choose(it),t,mt,4,3137,false,false);
+        auto dt=KibitzerStrategy::postflopV7(it,KibitzerAutoplay::choose(it),t,mt,4,3137,false,false);
         std::cout<<"overnight QJ turn "<<mt.valueHeavy.equity<<" "<<mt.balanced.equity<<" "<<mt.bluffHeavy.equity<<" "<<dt.reason<<std::endl;
         assert(dt.action==Action::Fold);
         auto r2=analyze(22,36,qj,5);
         assert(!r2.privateHand&&r2.maxBoardRank==3);
         auto mr=assess(22,36,qj,5,{1},h,160,5000,17,r2);
         auto ir=post(2000,6156,2616,.505);
-        auto dr=KibitzerStrategy::postflop(ir,KibitzerAutoplay::choose(ir),r2,mr,5,6156,false,false);
+        auto dr=KibitzerStrategy::postflopV7(ir,KibitzerAutoplay::choose(ir),r2,mr,5,6156,false,false);
         std::cout<<"overnight QJ river "<<mr.valueHeavy.equity<<" "<<mr.balanced.equity<<" "<<mr.bluffHeavy.equity<<" "<<dr.reason<<std::endl;
         assert(dr.action==Action::Fold);
     }
@@ -114,14 +123,14 @@ int main(){
         assert(!t.privateHand&&t.nominalDrawOuts==0);
         auto mt=assess(38,20,a9,4,{1},h,80,5000,17,t);
         auto it=post(608,1592,2741,.60);
-        auto dt=KibitzerStrategy::postflop(it,KibitzerAutoplay::choose(it),t,mt,4,1592,false,false);
+        auto dt=KibitzerStrategy::postflopV7(it,KibitzerAutoplay::choose(it),t,mt,4,1592,false,false);
         std::cout<<"overnight A9 turn "<<mt.valueHeavy.equity<<" "<<mt.balanced.equity<<" "<<mt.bluffHeavy.equity<<" "<<dt.reason<<std::endl;
         assert(dt.action==Action::Fold);
         auto r2=analyze(38,20,a9,5);
         assert(!r2.privateHand&&r2.maxBoardSuit==3);
         auto mr=assess(38,20,a9,5,{1},h,80,5000,17,r2);
         auto ir=post(1361,3561,2133,.60);
-        auto dr=KibitzerStrategy::postflop(ir,KibitzerAutoplay::choose(ir),r2,mr,5,3561,false,false);
+        auto dr=KibitzerStrategy::postflopV7(ir,KibitzerAutoplay::choose(ir),r2,mr,5,3561,false,false);
         std::cout<<"overnight A9 river "<<mr.valueHeavy.equity<<" "<<mr.balanced.equity<<" "<<mr.bluffHeavy.equity<<" "<<dr.reason<<std::endl;
         assert(dr.action==Action::Fold);
     }
@@ -132,26 +141,26 @@ int main(){
     p.bigBlind=40;p.highestSet=607;p.price=607;p.pot=802;p.hasRaise=true;
     for(auto hole:{std::array<int,2>{48,24},{49,22},{47,22},{49,21}}){
         p.card0=hole[0];p.card1=hole[1];
-        auto d=KibitzerStrategy::preflop(p,{Action::Call,p.price,true,"fixture-old-call"},{},5,.23,802,false);
+        auto d=comparablePreflop(p,{Action::Call,p.price,true,"fixture-old-call"},{},5,.23,802,false);
         assert(d.action==Action::Fold);
     }
     // Actual original QJo multiway expensive raise; no model required
     // for the very large random-equity deficit of this marginal hand.
     p.card0=a;p.card1=b;p.alive=9;p.roleIndex=7;p.stack=4609;p.bigBlind=160;
     p.price=p.highestSet=540;p.pot=780;
-    assert(KibitzerStrategy::preflop(p,{Action::Call,540,true,"fixture-old-call"},{},5,.231,780,false).action==Action::Fold);
+    assert(comparablePreflop(p,{Action::Call,540,true,"fixture-old-call"},{},5,.231,780,false).action==Action::Fold);
     // Affordable ordinary QJo defense with good pot odds is not banned.
     p.price=p.highestSet=320;p.pot=2000;
-    assert(KibitzerStrategy::preflop(p,{Action::Call,320,true,"fixture-old-call"},{},1,.48,2000,false).action==Action::Call);
+    assert(comparablePreflop(p,{Action::Call,320,true,"fixture-old-call"},{},1,.48,2000,false).action==Action::Call);
     // AA invariant and the true original sub-1BB KTo call.
     p.card0=12;p.card1=25;p.price=p.highestSet=3000;p.pot=4000;
-    assert(KibitzerStrategy::preflop(p,{Action::Call,3000,true,"aa"},{},5,.4,4000,false).action==Action::Call);
+    assert(comparablePreflop(p,{Action::Call,3000,true,"aa"},{},5,.4,4000,false).action==Action::Call);
     p.card0=50;p.card1=21;p.alive=2;p.roleIndex=0;p.bigBlind=5120;
     p.stack=1880;p.heroCommitted=2560;p.price=1880;p.highestSet=5120;p.pot=7680;
     p.hasRaise=false;p.opponentAllIns=0;p.minRaise=p.maxRaise=0;
     auto shortOld=KibitzerPreflop::choose(p);
     assert(shortOld.action==Action::Call);
-    assert(KibitzerStrategy::preflop(p,shortOld,{},1,.595,7680,false).action==Action::Call);
+    assert(comparablePreflop(p,shortOld,{},1,.595,7680,false).action==Action::Call);
     // Actual overnight K6o cheap BB call against a short all-in.
     p.card0=37;p.card1=4;p.alive=2;p.roleIndex=1;p.bigBlind=5120;
     p.stack=39170;p.heroCommitted=5120;p.price=590;p.highestSet=5710;
@@ -160,8 +169,8 @@ int main(){
     auto hu=assess(p.card0,p.card1,empty,0,{7},
                    {{7,0,6,3150,7680,5120,2560,3150,2}},5120,5000,117,{});
     assert(hu.valid);
-    assert(KibitzerStrategy::preflop(p,{Action::Fold,0,true,"legacy-fold"},hu,1,.553,10830,false).action==Action::Call);
-    assert(KibitzerStrategy::preflop(p,{Action::Fold,0,true,"legacy-fold"},hu,1,.553,10830,true).action==Action::Fold);
+    assert(comparablePreflop(p,{Action::Fold,0,true,"legacy-fold"},hu,1,.553,10830,false).action==Action::Call);
+    assert(comparablePreflop(p,{Action::Fold,0,true,"legacy-fold"},hu,1,.553,10830,true).action==Action::Fold);
     // Multiway joint rejection, reproducibility, and no incompatible card draws.
     auto pri=uniform(12,25,empty,0);normalize(pri);
     const auto mc1=monteCarlo(12,25,empty,0,{pri,pri},1200,123);
@@ -238,7 +247,7 @@ int main(){
     {
         // All 26 overnight raise-then-fold records. Conditional replay of
         // the decision snapshots, not a claim to replay entire tournaments.
-        // Side-pot records lack a verified full ledger here: never promote.
+        // Side-pot ledgers below are reconstructed from the public action journal.
         struct Incident {int price,pot,stack;double b,v,f;bool side;};
         const Incident rows[]={
           {2635,10315,13235,.5259,.5140,.5626,false},
@@ -268,25 +277,74 @@ int main(){
           {3094,6934,6846,.60980,.58830,.62380,false},
           {1289,9313,3005,.54563,.53777,.57150,true}
         };
-        int promoted=0,sideHeld=0;
+        // Source: exact public card codes and chip amounts from each
+        // chronological record. The original model summaries above are
+        // rounded, using a conservative common standard-error bound.
+        struct Detail {
+            int a,b,bb,alive,role,button,highest,committed,allIns,limpers;
+            int minRaise,maxRaise,opponents,increases,actualPot;
+            std::vector<int> ledger;
+            bool expectedCall;
+        };
+        const Detail details[]={
+          {30,38,1280,3,0,1,5835,3200,1,0,5270,13235,1,2,10315,{},true},
+          {33,38,40,10,9,0,450,100,0,1,700,4840,2,2,1000,{},true},
+          {51,23,80,10,8,0,600,200,0,0,800,4520,1,2,840,{},true},
+          {17,18,1280,5,4,0,14516,3200,2,0,11607,11607,2,2,23771,{0,14516,640,5415},false},
+          {8,51,20,10,8,0,150,50,0,0,200,4950,1,2,210,{},true},
+          {22,25,80,10,8,0,7290,720,0,0,0,0,2,4,10480,{7290,0,0,0,0,0,0,40,2430},true},
+          {46,20,80,10,4,0,4257,200,1,0,5463,5463,2,3,5523,{0,946,0,4257,0,0,0,40,80},false},
+          {37,35,640,8,7,0,3924,1600,1,0,4648,9003,1,2,5844,{},true},
+          {2,28,80,8,7,0,600,200,0,0,800,4450,1,2,840,{},true},
+          {37,48,320,8,7,0,2957,800,1,1,3650,3650,2,2,6714,{0,0,0,0,0,2957,2957},true},
+          {10,12,40,10,1,2,337,100,0,0,474,4920,1,2,437,{},true},
+          {32,6,320,8,4,0,3427,800,1,0,0,0,2,3,7347,{0,0,2800,0,0,3427,320},true},
+          {38,35,80,10,3,0,800,200,1,0,1200,4841,2,2,1220,{0,0,0,0,0,800,0,40,180},true},
+          {11,6,80,10,0,1,600,200,0,0,800,4800,1,2,840,{},true},
+          {51,9,320,8,4,0,3175,800,1,1,3860,3860,2,2,4935,{0,800,0,0,0,160,3175},true},
+          {10,12,320,8,0,1,2400,800,0,0,3200,4542,1,2,3360,{},true},
+          {8,11,640,9,7,0,2778,1600,1,0,2356,8640,1,2,5338,{},true},
+          {51,9,80,9,6,0,900,200,0,0,1400,4620,1,2,1220,{},true},
+          {9,12,160,9,0,1,4320,1440,0,0,0,0,1,3,6000,{},true},
+          {43,4,160,9,8,0,1299,400,1,0,1798,2220,1,2,1859,{},true},
+          {41,51,40,9,8,0,300,100,0,0,400,4890,1,2,420,{},true},
+          {11,50,80,10,7,0,2160,720,0,1,2880,4280,2,3,3640,{},true},
+          {19,32,160,10,6,0,1600,400,0,0,2400,2494,1,2,2240,{},true},
+          {47,8,20,9,5,0,720,180,0,0,1080,4820,1,3,980,{},true},
+          {49,25,640,5,4,0,4694,1600,1,0,6188,6846,1,2,6934,{},true},
+          {49,10,80,10,0,1,3494,2205,1,1,0,0,2,4,9313,{0,3494,0,0,3494,0,0,40,80},true}
+        };
+        static_assert(sizeof(rows)/sizeof(rows[0])==sizeof(details)/sizeof(details[0]));
+        int promoted=0,sideHeld=0,sidePromoted=0;
+        size_t index=0;
         for(const auto& z:rows){
+            const auto& d=details[index++];
             KibitzerPreflop::Input t;
-            // Non-AA placeholder: this regression tests the arithmetic
-            // branch independently of hand class; exact KK/QQ above.
-            t.card0=11;t.card1=50;t.alive=10;t.bigBlind=80;t.price=z.price;
-            t.pot=z.pot;t.stack=z.stack;t.highestSet=z.price;
+            t.card0=d.a;t.card1=d.b;t.alive=d.alive;t.roleIndex=d.role;t.button=d.button;
+            t.bigBlind=d.bb;t.price=z.price;t.pot=d.actualPot;t.stack=z.stack;
+            t.highestSet=d.highest;t.heroCommitted=d.committed;t.opponentAllIns=d.allIns;
+            t.limpers=d.limpers;t.minRaise=d.minRaise;t.maxRaise=d.maxRaise;
             t.hasRaise=true;t.heroPreviouslyRaised=true;
-            const Decision old{Action::Fold,0,true,"recorded-v6-fold"};
+            const auto old=KibitzerPreflop::choose(t);
+            assert(old.action==Action::Fold);
             auto m=logged(z.b,z.v,z.f,.0071); // conservative rounded SE bound
-            const auto d=KibitzerStrategy::preflopV7(t,old,m,2,.6,z.pot,z.side,3,{});
-            if(z.side){assert(d.action==Action::Fold);++sideHeld;}
-            else if(KibitzerStrategy::lower(m)>KibitzerStrategy::odds(z.price,z.pot)){
-                assert(d.action==Action::Call&&d.amount==z.price);++promoted;
-            }else assert(d.action==Action::Fold);
+            const auto bound=KibitzerStrategy::preflopPotBound(t.pot,t.heroCommitted,t.price,d.ledger);
+            if(z.side){
+                assert(bound.valid);
+                const auto missing=KibitzerStrategy::preflopV7(t,old,m,d.opponents,.6,z.pot,true,d.increases,{});
+                assert(missing.action==Action::Fold);
+            }
+            const auto next=KibitzerStrategy::preflopV7(t,old,m,d.opponents,.6,z.pot,z.side,d.increases,bound);
+            assert(next.action==(d.expectedCall?Action::Call:Action::Fold));
+            if(next.action==Action::Call){
+                assert(next.amount==z.price);++promoted;
+                if(z.side)++sidePromoted;
+            }else if(z.side)++sideHeld;
         }
-        std::cout<<"V7 snapshot replay: "<<promoted<<" supported calls, "<<sideHeld
-            <<" uncertain side-pot folds held (QQ separately reconciled)\n";
-        assert(promoted>0&&sideHeld==8);
+        std::cout<<"V7 recorded snapshot replay: "<<promoted<<" provisional calls, "
+            <<sidePromoted<<" via reconciled side-pot bound, "<<sideHeld
+            <<" side-pot folds retained; all 26 original chart folds reproduced\n";
+        assert(promoted==24&&sidePromoted==6&&sideHeld==2);
     }
     {
         // Exact A8 river incident: trips, paired three-club board.
