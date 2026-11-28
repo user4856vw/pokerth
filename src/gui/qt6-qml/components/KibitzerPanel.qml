@@ -1579,6 +1579,7 @@ Rectangle {
 
     Popup {
         id: progressPopup
+        onOpened: exportRangeControls.setRecent(12)
         parent: Overlay.overlay
         modal: true
         focus: true
@@ -2100,7 +2101,6 @@ Rectangle {
                             width: parent.width; color: "#c2d2e9"; wrapMode: Text.WordWrap; font.pixelSize: 11
                             text: "Analysis export only. Full history stays intact; use the full backup for Restore."
                         }
-                        Component.onCompleted: setRecent(12)
                     }
                     TrainerButton {
                         text: "Copy history JSON (small archives)"
