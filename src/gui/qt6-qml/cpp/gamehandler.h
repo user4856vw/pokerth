@@ -238,6 +238,7 @@ public:
 	Q_INVOKABLE QVariantMap kibitzerProgress() const;
 	Q_INVOKABLE bool kibitzerCopyBackup() const;
 	Q_INVOKABLE bool kibitzerExportBackup() const;
+	Q_INVOKABLE QString kibitzerExportRange(const QString &from,const QString &until) const;
 	Q_INVOKABLE bool kibitzerImportBackup(const QString &json);
 	Q_INVOKABLE void endLocalGame();
 	Q_INVOKABLE bool isLocalGameRunning() const;
@@ -601,6 +602,7 @@ private:
 	// Adopt the colours from the table theme into m_tableChatPalette and report the chat
 	// as well as the history as changed.
 	void refreshTableChatPalette();
+	bool kibitzerExportImpl(const QString &from,const QString &until) const;
 	void loadKibitzerProgress();
 	void saveKibitzerProgress(); // atomic rewrite, used only for v1 migration / import
 	bool appendKibitzerJournalRecord(const QString &type, const QVariantMap &value);

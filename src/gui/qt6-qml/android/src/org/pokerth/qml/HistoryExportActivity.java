@@ -45,7 +45,11 @@ public final class HistoryExportActivity extends Activity {
         Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         picker.addCategory(Intent.CATEGORY_OPENABLE);
         picker.setType("application/json");
-        picker.putExtra(Intent.EXTRA_TITLE, "pokerth-kibitzer-history.json");
+        String sourcePath = getIntent().getStringExtra(EXTRA_SOURCE);
+        boolean range = sourcePath != null &&
+            new File(sourcePath).getName().startsWith("pokerth-kibitzer-range-");
+        picker.putExtra(Intent.EXTRA_TITLE, range ?
+            "pokerth-kibitzer-history-range.json" : "pokerth-kibitzer-history.json");
         try {
             startActivityForResult(picker, REQUEST_CREATE_DOCUMENT);
         } catch (RuntimeException error) {

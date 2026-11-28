@@ -55,7 +55,7 @@ Rectangle {
     property var advice: ({"status": "unavailable"})
     property bool expanded: false
     property bool openRequested: false
-    readonly property bool editingRestore: restoreArea.activeFocus
+    readonly property bool editingRestore: restoreArea.activeFocus || exportFrom.activeFocus || exportUntil.activeFocus
     readonly property bool popupOpen: explanationPopup.visible || progressPopup.visible || rangePopup.visible || betPopup.visible || mcPopup.visible || historyPopup.visible || preflopPopup.visible
     property var rangePlayers: []
     property string rangeFeedback: ""
@@ -2042,7 +2042,7 @@ Rectangle {
                     }
                     TrainerButton {
                         visible: Qt.platform.os === "android"
-                        text: "Save history JSON to file…"
+                        text: "Save full history JSON to file…"
                         onClicked: kb.backupMessage = GameTable.kibitzerExportBackup()
                                    ? "Select a destination in Android's Save file dialog"
                                    : "Cannot prepare the history export"
@@ -2052,6 +2052,55 @@ Rectangle {
                         width: parent.width
                         color: "#b9f0d1"; font.pixelSize: 11; wrapMode: Text.WordWrap
                         text: "Use Save to file for overnight sessions. The Android clipboard may reject large histories."
+                    }
+                    Column {
+                        id: exportRangeControls
+                        visible: Qt.platform.os === "android"
+                        width: parent.width
+                        spacing: 5
+                        function setRecent(hours) {
+                            const now = new Date()
+                            exportFrom.text = Qt.formatDateTime(new Date(now.getTime()-hours*3600000), "yyyy-MM-dd HH:mm")
+                            // Next minute is exclusive; include the current minute.
+                            exportUntil.text = Qt.formatDateTime(new Date(now.getTime()+60000), "yyyy-MM-dd HH:mm")
+                        }
+                        Text { color: "#f0d891"; font.bold: true; text: "Export selected time range" }
+                        Text {
+                            width: parent.width; color: "#c2d2e9"; font.pixelSize: 11; wrapMode: Text.WordWrap
+                            text: "Device local time (YYYY-MM-DD HH:mm). Start included, end excluded. Hands by completion, tournaments by finish; tournament totals may include hands outside the range."
+                        }
+                        Row {
+                            spacing: 6
+                            TrainerButton { text: "Last 12 hours"; onClicked: exportRangeControls.setRecent(12) }
+                            TrainerButton { text: "Last 24 hours"; onClicked: exportRangeControls.setRecent(24) }
+                        }
+                        Text { color: "#c2d2e9"; text: "From (inclusive)"; font.pixelSize: 11 }
+                        TrainerRangeField {
+                            id: exportFrom
+                            width: parent.width
+                            placeholderText: "YYYY-MM-DD HH:mm"
+                            inputMethodHints: Qt.ImhNoPredictiveText
+                        }
+                        Text { color: "#c2d2e9"; text: "Until (exclusive)"; font.pixelSize: 11 }
+                        TrainerRangeField {
+                            id: exportUntil
+                            width: parent.width
+                            placeholderText: "YYYY-MM-DD HH:mm"
+                            inputMethodHints: Qt.ImhNoPredictiveText
+                        }
+                        TrainerButton {
+                            text: "Save selected range JSON…"
+                            enabled: exportFrom.text.length > 0 && exportUntil.text.length > 0
+                            onClicked: {
+                                const error = GameTable.kibitzerExportRange(exportFrom.text, exportUntil.text)
+                                kb.backupMessage = error || "Select destination in Android's Save file dialog"
+                            }
+                        }
+                        Text {
+                            width: parent.width; color: "#c2d2e9"; wrapMode: Text.WordWrap; font.pixelSize: 11
+                            text: "Analysis export only. Full history stays intact; use the full backup for Restore."
+                        }
+                        Component.onCompleted: setRecent(12)
                     }
                     TrainerButton {
                         text: "Copy history JSON (small archives)"

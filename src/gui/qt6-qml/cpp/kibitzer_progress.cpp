@@ -3,6 +3,8 @@
 #include "gamehandler.h"
 #include "kibitzer_training_stats.h"
 #include "kibitzer_tournament_stats.h"
+#include "kibitzer_export_range.h"
+#include <QUuid>
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -58,6 +60,8 @@ QJsonObject makeArchive(const QVariantList &hands, const QVariantList &tournamen
 bool validateArchive(const QJsonDocument &doc) {
     if (!doc.isObject()) return false;
     const QJsonObject root = doc.object();
+    // Partial analysis exports must never replace a complete local backup.
+    if (root.contains(QStringLiteral("exportScope"))) return false;
     if (root.value(QStringLiteral("schemaVersion")).toInt(-1) != kSchema ||
         !root.value(QStringLiteral("hands")).isArray()) return false;
     const auto hands = root.value(QStringLiteral("hands")).toArray();
@@ -584,19 +588,39 @@ bool GameHandler::kibitzerCopyBackup() const {
 // The JSON is first staged in app-private cache; a dedicated Android Activity
 // receives the file picker's result and streams bytes into the selected document.
 bool GameHandler::kibitzerExportBackup() const {
+    return kibitzerExportImpl(QString(),QString());
+}
+QString GameHandler::kibitzerExportRange(const QString &from,const QString &until) const {
+    const auto range=KibitzerExport::parseRange(from,until);
+    if(!range.valid())return QStringLiteral("Invalid time range: use YYYY-MM-DD HH:mm, start before end, and avoid ambiguous DST minutes.");
+    if(!kibitzerExportImpl(from,until))
+        return QStringLiteral("Cannot prepare range export: check storage and journal timestamps.");
+    return QString(); // staged and picker requested, not proof of save
+}
+bool GameHandler::kibitzerExportImpl(const QString &from,const QString &until) const {
 #ifdef Q_OS_ANDROID
+    const bool filtered=!from.isEmpty()||!until.isEmpty();
+    const auto range=KibitzerExport::parseRange(from,until);
+    if(filtered&&!range.valid())return false;
     if (!m_kibitzerHistoryWritable) return false;
     const QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
     if (cacheDir.isEmpty() || !QDir().mkpath(cacheDir)) return false;
-    const QString stagedPath = cacheDir + QStringLiteral("/pokerth-kibitzer-export.json");
+    // Unique private staging file prevents a second export replacing a
+    // pending picker source. Java deletes its own file at completion.
+    const QString stagedPath=cacheDir+(filtered?QStringLiteral("/pokerth-kibitzer-range-"):
+        QStringLiteral("/pokerth-kibitzer-export-"))+
+        QUuid::createUuid().toString(QUuid::WithoutBraces)+QStringLiteral(".json");
 
     // Stream ALL durable records into a compatible JSON archive. The rolling
     // in-memory history contains only the latest 2500 hands; it is never a
     // sufficient source for an extended overnight/month-long export.
     QSaveFile staged(stagedPath);
     if (!staged.open(QIODevice::WriteOnly)) return false;
-    const QByteArray prefix = QByteArray("{\"schemaVersion\":1,\"lastSessionId\":")
-        + QByteArray::number(m_kibitzerSessionId) + ",\"hands\":[";
+    QByteArray prefix = QByteArray("{\"schemaVersion\":1,\"lastSessionId\":")
+        + QByteArray::number(m_kibitzerSessionId);
+    if(filtered)prefix+=",\"exportScope\":"+
+        QJsonDocument(KibitzerExport::metadata(range)).toJson(QJsonDocument::Compact);
+    prefix+=",\"hands\":[";
     if (staged.write(prefix)!=prefix.size()) return false;
     const QString sourcePath=journalPath();
     if (QFile::exists(sourcePath)) {
@@ -616,10 +640,15 @@ bool GameHandler::kibitzerExportBackup() const {
                 if (type != (pass==0?QLatin1String("hand"):QLatin1String("tournament")))
                     continue;
                 if (!item.value(QStringLiteral("value")).isObject()) return false;
+                const auto value=item.value(QStringLiteral("value")).toObject();
+                if(filtered){
+                    const auto selection=KibitzerExport::match(value,pass==0,range);
+                    if(selection==KibitzerExport::Match::InvalidTimestamp)return false;
+                    if(selection==KibitzerExport::Match::Outside)continue;
+                }
                 if (!first && staged.write(",")!=1) return false;
                 first=false;
-                const QByteArray data=QJsonDocument(item.value(QStringLiteral("value")).toObject())
-                                      .toJson(QJsonDocument::Compact);
+                const QByteArray data=QJsonDocument(value).toJson(QJsonDocument::Compact);
                 if (staged.write(data)!=data.size()) return false;
             }
         }
@@ -638,6 +667,7 @@ bool GameHandler::kibitzerExportBackup() const {
         QJniObject activity = QNativeInterface::QAndroidApplication::context();
         if (!activity.isValid()) {
             qWarning() << "[KIBITZER-EXPORT] Android activity unavailable";
+            QFile::remove(stagedPath);
             return;
         }
         QJniObject path = QJniObject::fromString(stagedPath);
@@ -646,8 +676,10 @@ bool GameHandler::kibitzerExportBackup() const {
             "(Landroid/content/Context;Ljava/lang/String;)V",
             activity.object(), path.object());
         QJniEnvironment env;
-        if (env.checkAndClearExceptions())
+        if (env.checkAndClearExceptions()) {
             qWarning() << "[KIBITZER-EXPORT] Android file picker could not start";
+            QFile::remove(stagedPath);
+        }
     };
     if (auto *iface = qApp->nativeInterface<QNativeInterface::QAndroidApplication>())
         iface->runOnAndroidMainThread(openPicker);
@@ -655,6 +687,8 @@ bool GameHandler::kibitzerExportBackup() const {
         openPicker();
     return true; // staged and picker requested; Android reports save result
 #else
+    Q_UNUSED(from);
+    Q_UNUSED(until);
     return false;
 #endif
 }

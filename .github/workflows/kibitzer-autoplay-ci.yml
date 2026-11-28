@@ -2,7 +2,7 @@ name: Kibitzer AUTO TEST policy checks
 
 on:
   push:
-    branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5, experiment/kibitzer-strategy-p0-v6, experiment/kibitzer-strategy-p0-v7, experiment/kibitzer-strategy-p0-v8]
+    branches: [feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5, experiment/kibitzer-strategy-p0-v6, experiment/kibitzer-strategy-p0-v7, experiment/kibitzer-strategy-p0-v8, feature/kibitzer-date-range-export]
   pull_request:
     branches: [pokerth-trainer-v3, feature/kibitzer-eat-own-food-loop, experiment/kibitzer-preflop-ranges-v4, experiment/kibitzer-evidence-corpus-v5]
 
@@ -42,3 +42,19 @@ jobs:
             tests/kibitzer/test_empirical_v8.cpp src/engine/local_engine/handevaluator.cpp \
             -o /tmp/kibitzer-v8
           /tmp/kibitzer-v8
+
+  export-range:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host Qt Core development headers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qt6-base-dev
+      - name: Compile and run time range selection regressions
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fPIC \
+            -I src/gui/qt6-qml/cpp tests/kibitzer/test_export_range.cpp \
+            $(pkg-config --cflags --libs Qt6Core) -o /tmp/kibitzer-export-range
+          /tmp/kibitzer-export-range
