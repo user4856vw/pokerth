@@ -92,3 +92,11 @@ mass/tied ranks, independent reference ranking check, side-pot ledger and
 payoffs, JJ/KJs/KJo new incidents and old KK/QQ. Missing ledger/range
 does not fabricate an action. This is not a counterfactual tournament
 simulation or statistically established performance improvement.
+
+## Improved evidence collection
+
+V8 also stores the public action journal at settlement, including hero and
+opponent actions after the last hero decision (even if hero folded). This
+is offline evidence only. Future calibration must distinguish these
+complete journals from earlier censored prefixes. The response diagnostic
+is not evaluated when the single villain cannot cover the proposed bet.

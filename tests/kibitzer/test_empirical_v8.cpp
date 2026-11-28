@@ -6,7 +6,7 @@ using KibitzerBoard::Board;
 
 static const Board empty{{-1,-1,-1,-1,-1}};
 static const Decision call{Action::Call,1,true,"recorded-v7-call"};
-static Assessment replay(const char* label,int a,int b,const Board& board,int n,int bb,
+static KibitzerEmpirical::Assessment replay(const char* label,int a,int b,const Board& board,int n,int bb,
                          const std::vector<int>& seats,const std::vector<Observation>& history,
                          const Plan& plan,bool shouldFold){
     const auto x=assess(a,b,board,n,seats,history,bb,plan,5000,13579,
@@ -54,7 +54,7 @@ int main(){
     assert(plan.tiers[1].amount==150&&plan.tiers[1].mask==2);
     assert(plan.tiers[2].amount==300&&plan.tiers[2].mask==2);
     assert(payoff(10,{11,9},plan)==350); // loses main, wins side
-    assert(payoff(10,{10,10},plan)==400.0/3+450.0/2-100);
+    assert(std::abs(payoff(10,{10,10},plan)-(400.0/3+450.0/2-100))<1e-10);
     assert(payoff(12,{11,10},plan)==750);
     assert(!tierPlan(851,100,0,{{0,200},{1,100},{2,400},{3,150}},{1,2}).valid);
     assert(!tierPlan(850,100,0,{{0,200},{1,100},{2,400},{3,150}},{1,1}).valid);

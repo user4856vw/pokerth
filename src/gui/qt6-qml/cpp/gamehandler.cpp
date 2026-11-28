@@ -1545,7 +1545,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     std::vector<std::pair<int,int>> currentCommitments;
     std::vector<int> villains;
     QVariantList historyAudit;
-    int evidenceBB=0;
+    int evidenceBB=0,singleVillainStack=0;
     int eligiblePot=std::max(0,input.pot);
     bool sidePotUncertain=false,hasAllIn=false;
     if(activeHand){
@@ -1566,6 +1566,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         if(players)for(const auto& p:*players){
             if(p->getMyID()==0||p->getMyAction()==PLAYER_ACTION_FOLD)continue;
             villains.push_back(p->getMyID());
+            singleVillainStack=p->getMyCash();
             hasAllIn=hasAllIn||p->getMyAction()==PLAYER_ACTION_ALLIN;
         }
         auto seats=activeHand->getSeatsList();
@@ -1736,7 +1737,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         d=KibitzerEmpirical::applyCall(v7,empirical,isPreflop,own0,own1);
     }
     if(comparable&&!isPreflop&&input.price==0&&villains.size()==1&&
-       !sidePotUncertain&&legacy.action==KibitzerAutoplay::Action::Raise&&legacy.provisional){
+       !sidePotUncertain&&legacy.action==KibitzerAutoplay::Action::Raise&&legacy.provisional&&
+       legacy.amount<=singleVillainStack){
         responseProbe=KibitzerEmpirical::probe(own0,own1,visibleBoard,visibleCount,
             villains.front(),actions,evidenceBB,input.pot,legacy.amount,
             m_kibitzerMonteCarloRuns,modelSeed,boardAnalysis);
@@ -2598,6 +2600,17 @@ void GameHandler::settleKibitzerTournamentHand()
     settlement["chipDelta"] = heroCash - before;
     settlement["bbWon"] = double(heroCash - before) / bigBlind;
     settlement["observed"] = true;
+    // Capture the complete public journal at settlement, including opponent
+    // responses AFTER the last hero decision. This data is for later offline
+    // calibration only; never feed future actions into live decisions.
+    QVariantList completeActions;
+    for(const auto& a:hand->publicBetActions())
+        completeActions.append(QVariantMap{{"seat",a.seat},{"street",a.street},
+            {"action",a.action},{"paid",a.paid},{"potBefore",a.potBefore},
+            {"highestBefore",a.highestBefore},{"committedBefore",a.committedBefore},
+            {"stackBefore",a.stackBefore},{"players",a.players}});
+    settlement["publicActionJournal"] = completeActions;
+    settlement["publicActionJournalSchema"] = 1;
     m_kibitzerHandSettlement = settlement;
     m_kibitzerTournamentLastSettledHand = handId;
     m_kibitzerTournamentLastCash = heroCash;

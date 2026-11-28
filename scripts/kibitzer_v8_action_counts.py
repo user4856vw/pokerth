@@ -4,13 +4,16 @@ import argparse
 import collections
 import json
 
-def counts(data, sessions):
+def counts(data, sessions, complete=False):
     out = [[0, 0, 0, 0] for _ in range(9)]
     for h in data["hands"]:
         if h["session"] not in sessions:
             continue
         es = [e for e in h["entries"] if e.get("autoplay", {}).get("strategyP0")]
-        if not es:
+        if complete:
+            if h.get("settlement", {}).get("publicActionJournalSchema") != 1:
+                continue
+        elif not es:
             continue
         bb = h.get("settlement", {}).get("bigBlind", 0) or next(
             (e["autoplay"].get("preflopReference", {}).get("bigBlind", 0)
@@ -19,7 +22,8 @@ def counts(data, sessions):
             continue
         # The final recorded hero decision contains the longest public prefix;
         # do not count repeated prefixes from earlier decisions again.
-        hist = es[-1]["autoplay"]["strategyP0"]["publicOpponentActions"]
+        hist = ([a for a in h["settlement"]["publicActionJournal"] if a["seat"] != 0]
+                if complete else es[-1]["autoplay"]["strategyP0"]["publicOpponentActions"])
         prior = set()
         for a in hist:
             s, seat, act = a["street"], a["seat"], a["action"]
@@ -45,7 +49,9 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("export")
     p.add_argument("--sessions", nargs="+", type=int, default=[17, 18])
+    p.add_argument("--complete", action="store_true",
+                   help="only full settlement journals; never pool with censored prefixes")
     a = p.parse_args()
     with open(a.export, encoding="utf-8") as f:
         d = json.load(f)
-    print(json.dumps(counts(d, set(a.sessions)), indent=2))
+    print(json.dumps(counts(d, set(a.sessions), a.complete), indent=2))
