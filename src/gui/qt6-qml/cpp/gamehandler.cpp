@@ -20,6 +20,7 @@
 #include "kibitzer_preflop_position.h"
 #include "kibitzer_evidence_open_ranges.h"
 #include "kibitzer_strategy_p0.h"
+#include "kibitzer_empirical_model.h"
 #include "kibitzer_aggression_logic.h"
 #include "kibitzer_betsizing_logic.h"
 #include "kibitzer_mc_config.h"
@@ -1540,7 +1541,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
         const QVariantMap own=m_players.at(0).toMap();
         own0=own.value("card0",-1).toInt();own1=own.value("card1",-1).toInt();
     }
-    std::vector<KibitzerOpponent::Observation> actions;
+    std::vector<KibitzerOpponent::Observation> actions,fullJournal;
+    std::vector<std::pair<int,int>> currentCommitments;
     std::vector<int> villains;
     QVariantList historyAudit;
     int evidenceBB=0;
@@ -1549,6 +1551,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     if(activeHand){
         evidenceBB=activeHand->getSmallBlind()*2;
         for(const auto& a:activeHand->publicBetActions()){
+            fullJournal.push_back({a.seat,a.street,a.action,a.paid,a.potBefore,
+                a.highestBefore,a.committedBefore,a.stackBefore,a.players});
             if(a.seat==0)continue;
             actions.push_back({a.seat,a.street,a.action,a.paid,a.potBefore,
                                a.highestBefore,a.committedBefore,a.stackBefore,a.players});
@@ -1565,6 +1569,8 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             hasAllIn=hasAllIn||p->getMyAction()==PLAYER_ACTION_ALLIN;
         }
         auto seats=activeHand->getSeatsList();
+        if(seats)for(const auto& p:*seats)
+            currentCommitments.emplace_back(p->getMyID(),p->getMySet());
         auto bero=activeHand->getCurrentBeRo();
         if(villains.size()==1 && seats && !seats->empty() && bero){
             const auto hero=seats->front();
@@ -1588,7 +1594,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     }
     QVariantMap preflopAudit;
     KibitzerAutoplay::Decision legacy{KibitzerAutoplay::Action::Check,0,true,"legacy-unavailable"};
-    const auto d = [&]() -> KibitzerAutoplay::Decision {
+    const auto v7 = [&]() -> KibitzerAutoplay::Decision {
         if (!isPreflop) {
             legacy=KibitzerAutoplay::choose(input);
             return KibitzerStrategy::postflopV7(input,legacy,boardAnalysis,inferred,
@@ -1714,6 +1720,27 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
             (!manualRange&&input.adviceReady)?advice.value("equity").toDouble():-1.0,
             eligiblePot,sidePotUncertain,priceIncreases,bound);
     }();
+    auto d=v7;
+    KibitzerEmpirical::Plan evPlan;
+    KibitzerEmpirical::Assessment empirical;
+    KibitzerEmpirical::Probe responseProbe;
+    const bool comparable=!manualRange&&input.adviceReady&&input.rangesUsable&&
+        activeHand&&int(villains.size())==input.opponents&&!villains.empty()&&
+        ((isPreflop&&visibleCount==0)||(!isPreflop&&visibleCount>=3));
+    if(comparable&&input.price>0&&v7.action==KibitzerAutoplay::Action::Call){
+        evPlan=sidePotUncertain?KibitzerEmpirical::journalPlan(input.pot,input.price,0,
+            isPreflop?0:visibleCount-2,fullJournal,currentCommitments,villains):
+            KibitzerEmpirical::singlePot(eligiblePot,input.price,villains.size());
+        empirical=KibitzerEmpirical::assess(own0,own1,visibleBoard,visibleCount,villains,actions,
+            evidenceBB,evPlan,m_kibitzerMonteCarloRuns,modelSeed,boardAnalysis);
+        d=KibitzerEmpirical::applyCall(v7,empirical,isPreflop,own0,own1);
+    }
+    if(comparable&&!isPreflop&&input.price==0&&villains.size()==1&&
+       !sidePotUncertain&&legacy.action==KibitzerAutoplay::Action::Raise&&legacy.provisional){
+        responseProbe=KibitzerEmpirical::probe(own0,own1,visibleBoard,visibleCount,
+            villains.front(),actions,evidenceBB,input.pot,legacy.amount,
+            m_kibitzerMonteCarloRuns,modelSeed,boardAnalysis);
+    }
 
     // Only near-pure reference actions are comparable as a categorical
     // disagreement. A mixed strategy is recorded as mixed, not an error.
@@ -1764,8 +1791,36 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     QVariantList drawAudit;
     if(boardAnalysis.valid)for(int k=0;k<52;++k)if(boardAnalysis.drawOut[k])
         drawAudit.append(QVariantMap{{"card",k},{"unconditionedNextStreetShare",boardAnalysis.drawOutEquity[k]}});
+    auto evAudit=[](const KibitzerEmpirical::Projection& e){
+        return QVariantMap{{"valid",e.valid},{"exact",e.exact},{"samples",e.samples},
+            {"ev",e.valid?QVariant(e.ev):QVariant()},
+            {"standardError",e.valid?QVariant(e.standardError):QVariant()},
+            {"globalEquity",e.valid?QVariant(e.globalEquity):QVariant()}};
+    };
+    QVariantList tierAudit;
+    for(const auto& t:evPlan.tiers){
+        QVariantList eligibleSeats;
+        for(size_t i=0;i<villains.size();++i)if(t.mask&(1ULL<<i))eligibleSeats.append(villains[i]);
+        tierAudit.append(QVariantMap{{"amount",static_cast<qint64>(t.amount)},{"eligibleOpponents",eligibleSeats}});
+    }
+    const QVariantMap empiricalAudit{
+        {"model",QStringLiteral("captured-v6-action-frequencies-value-selective-v1")},
+        {"v7Action",actionText(v7.action)},{"v7Reason",QString::fromLatin1(v7.reason)},
+        {"v7Amount",v7.amount},{"changed",d.action!=v7.action||d.amount!=v7.amount},
+        {"valid",empirical.valid},{"planValid",evPlan.valid},{"tiers",tierAudit},
+        {"informativeActions",empirical.informative},
+        {"power",evAudit(empirical.power)},{"topTail",evAudit(empirical.tail)},
+        {"regretCall",empirical.valid?QVariant(empirical.regretCall):QVariant()},
+        {"regretFold",empirical.valid?QVariant(empirical.regretFold):QVariant()},
+        {"probe",QVariantMap{{"valid",responseProbe.valid},{"responseObservations",responseProbe.responses},
+            {"deltaLow",responseProbe.valid?QVariant(responseProbe.lo):QVariant()},
+            {"deltaHigh",responseProbe.valid?QVariant(responseProbe.hi):QVariant()},
+            {"continuingEquityLow",responseProbe.valid?QVariant(responseProbe.continueEqLo):QVariant()},
+            {"continuingEquityHigh",responseProbe.valid?QVariant(responseProbe.continueEqHi):QVariant()}}}
+    };
     const QVariantMap strategyAudit{
         {"modelVersion",QStringLiteral("public-action-likelihood-provisional-v1")},
+        {"empiricalV8",empiricalAudit},
         {"valid",inferred.valid},{"manualRange",manualRange},
         {"legacyChoiceOnCorrectedState",actionText(legacy.action)},
         {"legacyReason",QString::fromLatin1(legacy.reason)},{"legacyAmount",legacy.amount},
@@ -1788,7 +1843,7 @@ QVariantMap GameHandler::kibitzerAutoplayStep()
     };
     m_kibitzerAutoSnapshot = advice;
     m_kibitzerAutoMetadata = QVariantMap{
-        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v7-p0-regression")},
+        {QStringLiteral("policyVersion"), QStringLiteral("kibitzer-autoplay-v8-empirical-stress")},
         {QStringLiteral("choice"), move},
         {QStringLiteral("reason"), QString::fromLatin1(d.reason)},
         {QStringLiteral("provisional"), d.provisional},

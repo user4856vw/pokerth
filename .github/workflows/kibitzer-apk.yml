@@ -167,6 +167,14 @@ jobs:
             tests/kibitzer/test_strategy_p0.cpp src/engine/local_engine/handevaluator.cpp \
             -o /tmp/kibitzer-p0-v7
           /tmp/kibitzer-p0-v7
+      - name: Compile and run V8 empirical model and pot-tier regressions
+        run: |
+          set -eu
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+            -I src/gui/qt6-qml/cpp -I src/engine/local_engine \
+            tests/kibitzer/test_empirical_v8.cpp src/engine/local_engine/handevaluator.cpp \
+            -o /tmp/kibitzer-v8
+          /tmp/kibitzer-v8
       - name: Build signed APK
         run: |
           export VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
